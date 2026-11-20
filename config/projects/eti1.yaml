@@ -1,0 +1,43 @@
+# Project configuration for "Ecotech Invest 1". One file per project: adding
+# Ecotech Invest 4 later = adding config/projects/eti4.yaml + its seed file.
+
+id: eti1
+name: "Екотек Інвест 1"
+capital_usd: 3000000          # total cooperative capital used for the yield formula
+
+# Approximate start of operations: 39 worked days up to 30.06.2026 -> 23.05.2026.
+operation_start: 2026-05-23
+
+# Profit distribution waterfall (from the investor presentation).
+# `upto` = annualised project yield (USD), `investor` = investor's share of the slice.
+tiers:
+  - {upto: 0.12, investor: 1.0}
+  - {upto: 0.18, investor: 0.6}
+  - {upto: null, investor: 0.4}
+
+# Planned yields by year of operation (presentation, page 3).
+plan:
+  project_yield:  [0.35, 0.33, 0.32, 0.30, 0.27, 0.25, 0.23, 0.22, 0.21, 0.20]
+  investor_yield: [0.224, 0.216, 0.212, 0.204, 0.192, 0.184, 0.176, 0.172, 0.168, 0.164]
+
+# Reference investor: the default profile shown on the public page.
+# share = fixed by the cooperative as a share of the UAH amount of accepted capital,
+# so every investor has their own value (editable on the page).
+reference_investor:
+  share: 0.00830357
+  invested_usd: 25000
+  start_date: 2025-05-28
+  valuation_usd: 25000        # current valuation of the stake, manual
+
+# Investor-side FX: Privatbank card conversion, "sell" column (matches the
+# rates the owner used in the Excel tracker: 41.84, 45.0451, 45.8716).
+fx:
+  investor_kind: card_sell    # card_sell | card_buy | cash_sell | cash_buy
+
+forecast:
+  quarters_ahead: 1           # forecast the current quarter + N next ones
+  last_n_months: 3            # months used to derive cycles/day and net per cycle
+  profit_tax_uah: 0           # assumed profit tax per forecast quarter
+  payout_lag_days: 25         # payout date ~ period end + N days (history: 24-27)
+  calibration: null           # null = derive from history; or a number, e.g. 0.89
+  fx_uah_per_usd: null        # null = NBU rate of the latest final report

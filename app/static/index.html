@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Екотек Інвест Дашборд</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#15191f; --ink2:#4b5563; --muted:#6b7280; --line:#e3e6eb;
+  --accent:#0f766e; --accent2:#5eb3aa; --warn:#b45309; --bad:#b91c1c; --ok:#15803d;
+  --plan:#7c3aed; --proj:#2563eb;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1318; --card:#171c23; --ink:#e8ebf0; --ink2:#b4bcc8; --muted:#8b95a3; --line:#2a313b;
+    --accent:#2dd4bf; --accent2:#2b6f69; --warn:#fbbf24; --bad:#f87171; --ok:#4ade80;
+    --plan:#a78bfa; --proj:#60a5fa;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 2px} h2{font-size:16px;margin:28px 0 10px}
+.sub{color:var(--muted);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:16px 0}
+.controls label{display:flex;flex-direction:column;font-size:12px;color:var(--ink2);gap:4px}
+.controls input{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;width:150px}
+.controls button{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.kpi .l{font-size:12px;color:var(--muted)} .kpi .v{font-size:24px;font-weight:650;margin:2px 0}
+.kpi .s{font-size:12px;color:var(--ink2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.chart{height:320px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left} th{color:var(--muted);font-weight:600;font-size:12px}
+.scroll{overflow-x:auto}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--ink2)}
+.tag.locked{color:var(--ok)} .tag.est{color:var(--warn)}
+.ok{color:var(--ok)} .bad{color:var(--bad)}
+.note{font-size:12.5px;color:var(--ink2);margin:8px 0 0}
+details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Екотек Інвест</h1>
+  <div class="sub" id="asof"></div>
+
+  <div class="card controls" id="controls">
+    <label>Сума інвестиції, $<input id="amount" type="number" min="1" step="1000"></label>
+    <label>Частка в кооперативі, %<input id="share" type="number" min="0.0001" step="0.0001"></label>
+    <label>Дата початку інвестування<input id="start" type="date"></label>
+    <label>Поточна оцінка паю, $<input id="valuation" type="number" min="0" step="100"></label>
+    <button id="reset">Скинути (мінімальна частка)</button>
+    <div class="sub" style="max-width:300px">Частка за замовчуванням розрахована за мінімальним внеском. У кожного інвестора вона своя (залежить від курсу, за яким вносили) — змініть поле, якщо знаєте свій відсоток.</div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <h2>Динаміка по місяцях</h2>
+  <div class="grid2">
+    <div class="card"><div class="chart" id="c_net"></div></div>
+    <div class="card"><div class="chart" id="c_cyc"></div></div>
+  </div>
+
+  <h2>Квартали: виплата та дохідність</h2>
+  <div class="grid2">
+    <div class="card"><div class="chart" id="c_pay"></div></div>
+    <div class="card"><div class="chart" id="c_yield"></div></div>
+  </div>
+  <p class="note" id="forecast_note"></p>
+
+  <h2>Таблиця кварталів</h2>
+  <div class="card scroll"><table id="t_q"></table></div>
+
+  <h2>Виплати (фактичні)</h2>
+  <div class="card scroll"><table id="t_pay"></table></div>
+  <p class="note">Курс для перерахунку в $ — Приватбанк (конвертація за картками, «продаж») на дату виплати. Розрахунки компанії (шкала розподілу, дохідність проєкту) рахуються за курсом НБУ зі звітів.</p>
+
+  <h2>Звіти кооператива</h2>
+  <div class="card scroll"><table id="t_rep"></table></div>
+
+  <details><summary>Перевірки звітів на узгодженість</summary><div class="card scroll"><table id="t_chk"></table></div></details>
+  <details><summary>Припущення прогнозу</summary><div class="card" id="assump"></div></details>
+  <div class="note" id="warn"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nf0 = new Intl.NumberFormat('uk-UA',{maximumFractionDigits:0});
+const nf2 = new Intl.NumberFormat('uk-UA',{minimumFractionDigits:2,maximumFractionDigits:2});
+const uah = v => v==null?'—':nf0.format(v)+' грн';
+const usd = v => v==null?'—':'$'+nf0.format(v);
+const pct = (v,d=1) => v==null?'—':(v*100).toFixed(d).replace('.',',')+'%';
+const dt = s => s?new Date(s).toLocaleDateString('uk-UA'):'—';
+const MON = ['січ','лют','бер','кві','тра','чер','лип','сер','вер','жов','лис','гру'];
+const mlabel = s => {const d=new Date(s);return MON[d.getUTCMonth()]+' '+String(d.getUTCFullYear()).slice(2)};
+const STATUS = {final:'Фінал',reconciled:'Попередній (звірка)',preliminary:'Попередній',forecast:'Прогноз'};
+let D=null, ref=null, timer=null;
+
+function saveState(){try{localStorage.setItem('eti_inv',JSON.stringify({a:$('amount').value,s:$('share').value,st:$('start').value,v:$('valuation').value,sd:shareDirty}))}catch(e){}}
+let shareDirty=false;
+function loadState(){try{return JSON.parse(localStorage.getItem('eti_inv')||'null')}catch(e){return null}}
+
+async function load(first){
+  const p=new URLSearchParams();
+  if($('amount').value) p.set('amount',$('amount').value);
+  if(shareDirty && $('share').value) p.set('share',(parseFloat($('share').value)/100).toString());
+  if($('start').value) p.set('start',$('start').value);
+  if($('valuation').value) p.set('valuation',$('valuation').value);
+  const r=await fetch('/api/dashboard?'+p); if(!r.ok){$('warn').textContent='Помилка даних: '+r.status;return}
+  D=await r.json();
+  if(first){ref=D.investor;}
+  if(!$('amount').value||first){$('amount').value=D.investor.amount;$('start').value=D.investor.start;$('valuation').value=D.investor.valuation;}
+  if(!shareDirty) $('share').value=(D.investor.share*100).toFixed(6);
+  render(); saveState();
+}
+const debounced=()=>{clearTimeout(timer);timer=setTimeout(()=>load(false),350)};
+
+function kpi(l,v,s){return `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s||''}</div></div>`}
+
+function render(){
+  const k=D.kpi, n=k.next_payout;
+  $('title').textContent=D.project.name+' — дашборд інвестора';
+  $('asof').textContent='Дані станом на '+dt(D.today)+' · прогноз оновлюється новими звітами кооперативу';
+  $('kpis').innerHTML=[
+    kpi('Отримано виплат',usd(k.received_cash_usd),uah(k.received_cash_uah)+' · '+pct(k.return_pct)+' від внеску'),
+    kpi('XIRR (грошові потоки)',pct(k.xirr_cash),'з урахуванням боргу УкрЕнерго: '+pct(k.xirr_with_debt)),
+    kpi('Середньорічна дохідність',pct(k.avg_annual_accrued),'за виплатами, з нарахованим боргом, по курсу на дату виплати'),
+    kpi('План (рік '+D.plan.year+')',pct(D.plan.investor_yield),'дохідність інвестора за презентацією; проєкт '+pct(D.plan.project_yield,0)),
+    kpi('Борг УкрЕнерго (ваша частка)',uah(k.debt_left_uah),usd(k.debt_left_usd)+' очікується до виплати'),
+    n?kpi('Наступна виплата ('+n.label+')',usd(n.usd),(n.low_usd!=null?'діапазон '+usd(n.low_usd)+' – '+usd(n.high_usd)+' · ':'')+'≈ '+dt(n.pay_date)+' · '+(n.status==='forecast'?'прогноз':'оцінка за попередніми даними')):''
+  ].join('');
+  charts(); tables();
+  const a=D.model.assumptions.base;
+  $('assump').innerHTML=a?`<p>Калібрувальний коефіцієнт попередніх даних: <b>${D.model.calibration.toFixed(3)}</b> (попередній дохід у чаті / фінальний у звіті; попередні числа ділимо на нього).</p>
+   <p>База: ${a.cycles_per_day.toFixed(2)} циклів/добу · ${uah(a.net_per_cycle)} на цикл (дохід після електроенергії) · інші витрати ${uah(a.other_opex_per_day)}/добу · курс НБУ ${a.fx}. Низький/високий сценарій — мінімум/максимум за останні 3 місяці. Податок на прибуток у прогнозі = 0. Сезонність не враховується.</p>`:'Недостатньо даних для прогнозу.';
+  $('warn').textContent=D.warnings.join('; ');
+}
+
+function layout(extra){
+  return Object.assign({paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+    font:{color:css('--ink2'),size:12},margin:{l:62,r:12,t:34,b:42},
+    xaxis:{gridcolor:css('--line'),zeroline:false},yaxis:{gridcolor:css('--line'),zeroline:false},
+    legend:{orientation:'h',y:-0.2},hovermode:'x unified'},extra||{});
+}
+const cfg={displayModeBar:false,responsive:true};
+const fill=(status)=>({final:css('--accent'),reconciled:css('--accent2'),preliminary:css('--accent2'),forecast:css('--accent2')})[status];
+
+function charts(){
+  const M=D.months, x=M.map(m=>mlabel(m.month));
+  // 1. monthly net revenue after electricity, mln UAH
+  const groups=[['final','Фінал'],['preliminary','Попередній (з поправкою)'],['forecast','Прогноз']];
+  const tr=groups.map(([st,name])=>{
+    const sel=M.map(m=>(st==='preliminary'?['preliminary','reconciled'].includes(m.status):m.status===st));
+    const t={type:'bar',name,x,y:M.map((m,i)=>sel[i]?m.net/1e6:null),marker:{color:fill(st==='preliminary'?'preliminary':st)},
+      hovertemplate:'%{y:.2f} млн грн'};
+    if(st==='forecast'){
+      t.marker.pattern={shape:'/',fgcolor:css('--accent'),bgcolor:'rgba(0,0,0,0)',size:6};
+      t.marker.line={color:css('--accent'),width:1};
+      t.error_y={type:'data',symmetric:false,visible:true,color:css('--muted'),thickness:1.2,width:4,
+        array:M.map(m=>m.net_high!=null?(m.net_high-m.net)/1e6:0),arrayminus:M.map(m=>m.net_low!=null?(m.net-m.net_low)/1e6:0)};
+    }
+    if(st==='preliminary'){t.marker.color=css('--accent2')}
+    return t});
+  Plotly.react('c_net',tr,layout({title:{text:'Дохід після електроенергії, млн грн',font:{size:13}},barmode:'overlay',yaxis:{gridcolor:css('--line'),rangemode:'tozero'}}),cfg);
+  // 2. cycles per month and net per cycle (two charts' worth of info on separate axes would be dual-axis -> use two traces rows)
+  const cy=M.map(m=>m.cycles);
+  Plotly.react('c_cyc',[
+    {type:'bar',name:'Цикли',x,y:cy,marker:{color:M.map(m=>m.status==='forecast'?css('--accent2'):css('--accent'))},hovertemplate:'%{y:.1f} циклів'}],
+    layout({title:{text:'Кількість циклів за місяць',font:{size:13}},showlegend:false}),cfg);
+  // 3. quarterly investor payout $
+  const Q=D.quarters, qx=Q.map(q=>q.label), lock=Q.map(q=>q.status==='locked');
+  const pay=[
+   {type:'bar',name:'Фактична виплата (нараховано)',x:qx.filter((_,i)=>lock[i]),y:Q.filter(q=>q.status==='locked').map(q=>q.payout_usd),marker:{color:css('--accent')},hovertemplate:'$%{y:,.0f}'},
+   {type:'bar',name:'Оцінка / прогноз',x:qx.filter((_,i)=>!lock[i]),y:Q.filter(q=>q.status!=='locked').map(q=>q.payout_usd),
+     marker:{color:'rgba(0,0,0,0)',line:{color:css('--accent'),width:1.2},pattern:{shape:'/',fgcolor:css('--accent'),bgcolor:'rgba(0,0,0,0)',size:6}},
+     error_y:{type:'data',symmetric:false,visible:true,color:css('--muted'),thickness:1.2,width:4,
+       array:Q.filter(q=>q.status!=='locked').map(q=>q.high&&q.payout_usd!=null?q.high.payout_usd-q.payout_usd:0),
+       arrayminus:Q.filter(q=>q.status!=='locked').map(q=>q.low&&q.payout_usd!=null?q.payout_usd-q.low.payout_usd:0)},hovertemplate:'$%{y:,.0f}'}];
+  Plotly.react('c_pay',pay,layout({title:{text:'Виплата інвестору за квартал, $',font:{size:13}},barmode:'group',yaxis:{gridcolor:css('--line'),rangemode:'tozero'}}),cfg);
+  // 4. annual yield: project and investor per quarter vs plan
+  const planP=Q.map(_=>D.plan.project_yield*100), planI=Q.map(_=>D.plan.investor_yield*100);
+  const ly=(name,y,color,dash,extra)=>Object.assign({type:'scatter',mode:'lines+markers',name,x:qx,y,line:{color,width:2,dash},marker:{size:8,line:{color:css('--card'),width:2}},hovertemplate:'%{y:.1f}%'},extra||{});
+  Plotly.react('c_yield',[
+    ly('Проєкт (факт/оцінка)',Q.map(q=>q.annual_yield*100),css('--proj'),'solid'),
+    ly('Інвестор (факт/оцінка)',Q.map(q=>q.investor_annual_yield*100),css('--accent'),'solid'),
+    ly('План: проєкт',planP,css('--proj'),'dot',{mode:'lines'}),
+    ly('План: інвестор',planI,css('--accent'),'dot',{mode:'lines'})],
+    layout({title:{text:'Річна дохідність, % (за кожен квартал)',font:{size:13}},yaxis:{gridcolor:css('--line'),rangemode:'tozero'},legend:{orientation:'h',y:-0.25}}),cfg);
+  const f=Q.find(q=>q.status!=='locked');
+  $('forecast_note').textContent=f?`Квартал ${f.label}: ${f.counts.final+f.counts.preliminary+f.counts.reconciled} з ${Q.length?f.months.length:0} місяців вже з даними (штриховка — оцінка). Після фінального звіту кооперативу квартал фіксується, а прогноз замінюється фактом.`:'';
+}
+
+function tables(){
+  const th=a=>'<tr>'+a.map(x=>`<th>${x}</th>`).join('')+'</tr>', td=a=>'<tr>'+a.map(x=>`<td>${x}</td>`).join('')+'</tr>';
+  const st=s=>s==='locked'?'<span class="tag locked">зафіксовано</span>':s==='estimate'?'<span class="tag est">оцінка</span>':'<span class="tag est">прогноз</span>';
+  $('t_q').innerHTML=th(['Квартал','Статус','Днів','Цикли','Дохід після ел.','База виплат','Пул інвесторів','Винагорода КК','Дохідність проєкту','Дохідність інвестора','Ваша виплата, грн','Ваша виплата, $','Дата виплати'])+
+   D.quarters.map(q=>td([q.label,st(q.status),q.days,q.cycles?q.cycles.toFixed(1):'—',uah(q.net),uah(q.base),uah(q.pool),uah(q.mgmt),pct(q.annual_yield),pct(q.investor_annual_yield),uah(q.payout_uah),usd(q.payout_usd),(q.pay_date_estimated?'≈ ':'')+dt(q.pay_date)])).join('');
+  $('t_pay').innerHTML=th(['Період','Дата виплати','Днів','Виплата, грн','Борг УкрЕнерго, грн','Курс Приватбанку','Виплата, $','Річна (отримано)','Річна (нараховано)'])+
+   D.payments.map(p=>td([dt(p.period_start)+' – '+dt(p.period_end),dt(p.pay_date),p.days,uah(p.cash_uah),uah(p.debt_uah),p.rate?nf2.format(p.rate):'—',usd(p.cash_usd),pct(p.annual_cash),pct(p.annual_accrued)])).join('');
+  $('t_rep').innerHTML=th(['Період','Днів','Цикли','Дохід','Витрати на ел.','Персонал','ПЗ/інтернет/РКО','Податок на прибуток','База виплат','Пул інвесторів','з них борг УкрЕнерго','Винагорода КК','Курс НБУ','Дохідність у звіті'])+
+   D.reports.map(r=>td([dt(r.period_start)+' – '+dt(r.period_end),r.days,r.cycles??'—',uah(r.revenue),uah(r.opex_electricity),uah(r.opex_personnel),uah(r.opex_software),uah(r.profit_tax),uah(r.base),uah(r.pool),uah(r.debt_pool),uah(r.mgmt),r.nbu_rate,pct(r.reported_yield,2)])).join('');
+  $('t_chk').innerHTML=th(['Звіт','Перевірка','Результат','Деталі'])+D.checks.map(c=>td([c.report,c.name,c.ok?'<span class="ok">✓ ок</span>':'<span class="bad">✗ розбіжність</span>',c.detail])).join('');
+}
+
+['amount','start','valuation'].forEach(id=>$(id).addEventListener('input',()=>{ if(id==='amount') shareDirty=false; debounced()}));
+$('share').addEventListener('input',()=>{shareDirty=true;debounced()});
+$('reset').addEventListener('click',()=>{try{localStorage.removeItem('eti_inv')}catch(e){};shareDirty=false;['amount','start','valuation','share'].forEach(i=>$(i).value='');load(true)});
+(async()=>{const s=loadState(); if(s){$('amount').value=s.a||'';$('start').value=s.st||'';$('valuation').value=s.v||'';if(s.sd&&s.s){$('share').value=s.s;shareDirty=true}}
+  await load(!s);})();
+</script>
+</body>
+</html>

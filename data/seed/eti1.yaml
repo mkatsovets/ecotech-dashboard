@@ -1,0 +1,77 @@
+# Seed data for eti1: FINAL cooperative reports (from the infographics) and
+# monthly PRELIMINARY messages (from the investor chat).
+# Amounts in UAH without VAT. The database is initialised from this file
+# (idempotent upsert by key); new reports are meant to be added via the admin side.
+
+reports:
+  - key: "2026-Q2"
+    kind: final
+    period_start: 2026-05-23        # derived: 39 worked days to 30.06 (approximate)
+    period_end: 2026-06-30
+    days: 39
+    cycles: null
+    revenue: 7190737.19
+    prior_tax: 0
+    opex_electricity: 1614800.63
+    opex_personnel: 90062.47
+    opex_software: 29432.70
+    profit_tax: 536119.56
+    base: 4920321.83
+    pool: 3173007.95
+    debt_pool: 0
+    mgmt: 1747162.60
+    nbu_rate: 44.75
+    pay_date: 2026-07-24
+    reported_yield: 0.343
+    reported_investor_yield: 0.2212
+    note: "NBU rate on 22.07.2026. Report: pool + mgmt differs from base by 151.28."
+
+  - key: "2026-07-08"
+    kind: final
+    period_start: 2026-07-01
+    period_end: 2026-08-31
+    days: 62
+    cycles: 134.9                   # 60.4 + 74.5 from the chat messages
+    revenue: 18324039.00
+    prior_tax: 536119.56            # previously withheld profit tax returned
+    opex_electricity: 1864779.09
+    opex_personnel: 180124.00
+    opex_software: 13100.00
+    profit_tax: 0
+    base: 16802155.47
+    pool: 8629986.57
+    debt_pool: 2933426.57
+    mgmt: 8172168.90
+    nbu_rate: 44.6
+    pay_date: 2026-09-25
+    reported_yield: 0.7392
+    reported_investor_yield: 0.3797
+    note: "NBU rate on 17.09.2026."
+
+  - key: "2026-09"
+    kind: final
+    period_start: 2026-09-01
+    period_end: 2026-09-30
+    days: 30
+    cycles: 63.8
+    revenue: 9157005.61
+    prior_tax: 0
+    opex_electricity: 1054476.07
+    opex_personnel: 145164.22
+    opex_software: 6666.66
+    profit_tax: 0
+    base: 7950698.66
+    pool: 4116179.83                # infographic; the owner's Excel has 4116476.72 (typo)
+    debt_pool: 707223.96            # infographic; Excel has 703545.00
+    mgmt: 3834518.83
+    nbu_rate: 45.20
+    pay_date: 2026-10-27
+    reported_yield: 0.7308
+    reported_investor_yield: 0.3763
+    note: "Infographic says rate date 26.09.2026 (before month end, likely a typo). Payouts match a yield of 71.3%, not the reported 73.08%."
+
+monthly:
+  - {month: 2026-07-01, days: 31, cycles: 60.4, net_uah: 6456618, status: reconciled, note: "UkrEnergo reconciliation received"}
+  - {month: 2026-08-01, days: 31, cycles: 74.5, net_uah: 8054348, status: preliminary}
+  - {month: 2026-09-01, days: 30, cycles: 63.8, net_uah: 7393943, status: preliminary}
+  - {month: 2026-10-01, days: 31, cycles: 65.8, net_uah: 6491289, status: preliminary}

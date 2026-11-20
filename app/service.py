@@ -1,0 +1,153 @@
+"""Builds the dashboard payload: project-level data + a personal view for a given share."""
+from __future__ import annotations
+
+from dataclasses import asdict
+from datetime import date
+
+from .model import check_reports, run_all
+from .returns import annualized, xirr
+from .waterfall import tiers_from_config
+
+
+def _jsonable(v):
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, dict):
+        return {k: _jsonable(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_jsonable(x) for x in v]
+    return v
+
+
+def investor_params(cfg: dict, amount: float | None, share: float | None,
+                    start: date | None, valuation: float | None) -> dict:
+    """Defaults come from the reference investor; share follows the amount unless set explicitly."""
+    ref = cfg["reference_investor"]
+    amount = float(amount if amount is not None else ref["invested_usd"])
+    per_usd = ref["share"] / ref["invested_usd"]
+    return {
+        "amount": amount,
+        "share": float(share) if share is not None else amount * per_usd,
+        "share_per_usd": per_usd,
+        "start": start or ref["start_date"],
+        "valuation": float(valuation) if valuation is not None else amount,
+    }
+
+
+def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
+                    start=None, valuation=None) -> dict:
+    pid = cfg["id"]
+    capital = float(cfg["capital_usd"])
+    reports, prelims = repo.reports(pid), repo.prelims(pid)
+    repayments = repo.repayments(pid)
+    inv = investor_params(cfg, amount, share, start, valuation)
+    A, S = inv["amount"], inv["share"]
+    warnings: list[str] = []
+
+    model = run_all(reports, prelims, cfg, today)
+    rate_today = fx.get(today)
+
+    def usd(uah: float | None, day: date | None) -> float | None:
+        if uah is None or day is None:
+            return None
+        r = fx.get(day)
+        if not r:
+            warnings.append(f"Немає курсу Приватбанку на {day.isoformat()}")
+            return None
+        return uah / r
+
+    # --- actual payouts, one row per final report ---------------------------------------
+    payments = []
+    for r in reports:
+        cash_uah = (r.pool - r.debt_pool) * S
+        debt_uah = r.debt_pool * S
+        rate = fx.get(r.pay_date) if r.pay_date else None
+        cash_usd = cash_uah / rate if rate else None
+        accr_usd = (cash_uah + debt_uah) / rate if rate else None
+        payments.append({
+            "key": r.key, "pay_date": r.pay_date, "period_start": r.period_start, "period_end": r.period_end,
+            "days": r.days, "cash_uah": cash_uah, "debt_uah": debt_uah, "rate": rate,
+            "cash_usd": cash_usd, "accrued_usd": accr_usd,
+            "annual_cash": annualized(cash_usd, A, r.days) if cash_usd is not None else None,
+            "annual_accrued": annualized(accr_usd, A, r.days) if accr_usd is not None else None,
+            "in_return": bool(r.pay_date and r.pay_date >= inv["start"]),
+        })
+    repaid = []
+    for day, pool_uah in repayments:
+        uah = pool_uah * S
+        repaid.append({"day": day, "uah": uah, "usd": usd(uah, day)})
+
+    # --- quarters with the personal view -------------------------------------------------
+    quarters = []
+    for q in model["quarters"]:
+        row = dict(q)
+        row["payout_uah"] = q["pool"] * S
+        row["payout_usd"] = usd(row["payout_uah"], q["pay_date"])
+        row["annual"] = annualized(row["payout_usd"], A, q["days"]) if row["payout_usd"] is not None else None
+        for scen in ("low", "high"):
+            if scen in q:
+                u = usd(q[scen]["pool"] * S, q["pay_date"])
+                row[scen] = {**q[scen], "payout_uah": q[scen]["pool"] * S, "payout_usd": u}
+        quarters.append(row)
+
+    # --- KPIs -------------------------------------------------------------------------------
+    used = [p for p in payments if p["in_return"]]
+    cash_usd = sum(p["cash_usd"] or 0 for p in used) + sum(x["usd"] or 0 for x in repaid if x["day"] >= inv["start"])
+    accrued_uah = sum(r.debt_pool for r in reports) * S
+    repaid_uah = sum(p * S for _, p in repayments)
+    debt_left_uah = accrued_uah - repaid_uah
+    debt_left_usd = debt_left_uah / rate_today if rate_today else None
+
+    flows = [(inv["start"], -A)]
+    flows += [(p["pay_date"], p["cash_usd"]) for p in used if p["cash_usd"]]
+    flows += [(x["day"], x["usd"]) for x in repaid if x["usd"] and x["day"] >= inv["start"]]
+    flows_val = flows + [(today, inv["valuation"])]
+    flows_debt = flows_val + ([(today, debt_left_usd)] if debt_left_usd else [])
+
+    accr_usd_total = sum(p["accrued_usd"] or 0 for p in used)
+    days_total = sum(p["days"] for p in used)
+    next_q = next((q for q in quarters if q["status"] != "locked"), None)
+
+    year_idx = min(10, max(1, int((today - cfg["operation_start"]).days / 365.25) + 1))
+    plan = {"year": year_idx,
+            "project_yield": cfg["plan"]["project_yield"][year_idx - 1],
+            "investor_yield": cfg["plan"]["investor_yield"][year_idx - 1]}
+
+    kpi = {
+        "invested_usd": A, "share": S, "valuation_usd": inv["valuation"],
+        "received_cash_uah": sum(p["cash_uah"] for p in used) + sum(x["uah"] for x in repaid),
+        "received_cash_usd": cash_usd,
+        "return_pct": cash_usd / A if A else None,
+        "debt_left_uah": debt_left_uah, "debt_left_usd": debt_left_usd,
+        "avg_annual_accrued": annualized(accr_usd_total, A, days_total) if days_total else None,
+        "xirr_cash": xirr(flows_val),
+        "xirr_with_debt": xirr(flows_debt),
+        "next_payout": None if next_q is None else {
+            "label": next_q["label"], "status": next_q["status"], "pay_date": next_q["pay_date"],
+            "uah": next_q["payout_uah"], "usd": next_q["payout_usd"],
+            "low_usd": next_q.get("low", {}).get("payout_usd"), "high_usd": next_q.get("high", {}).get("payout_usd"),
+            "low_uah": next_q.get("low", {}).get("payout_uah"), "high_uah": next_q.get("high", {}).get("payout_uah"),
+        },
+    }
+
+    months = []
+    for m in model["months"]:
+        months.append({
+            "month": m.month, "status": m.status, "days": m.days, "cycles": m.cycles, "net": m.net,
+            "net_per_cycle": (m.net / m.cycles) if m.cycles else None,
+            "net_low": m.net_low, "net_high": m.net_high, "raw_prelim": m.raw_prelim,
+        })
+
+    out = {
+        "project": {"id": pid, "name": cfg["name"], "capital_usd": capital,
+                    "tiers": cfg["tiers"], "operation_start": cfg["operation_start"]},
+        "today": today, "investor": inv, "plan": plan, "kpi": kpi,
+        "payments": payments, "repayments": repaid, "quarters": quarters, "months": months,
+        "reports": [{**asdict(r), "net_ops": r.net_ops} for r in reports],
+        "prelims": [asdict(p) for p in prelims],
+        "checks": check_reports(reports, capital, tiers_from_config(cfg["tiers"])),
+        "model": {"calibration": model["calibration"],
+                  "assumptions": {k: asdict(v) for k, v in model["assumptions"].items()}},
+        "warnings": sorted(set(warnings)),
+    }
+    return _jsonable(out)
