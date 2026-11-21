@@ -49,6 +49,8 @@ th:first-child,td:first-child{text-align:left} th{color:var(--muted);font-weight
 .ok{color:var(--ok)} .bad{color:var(--bad)}
 .note{font-size:12.5px;color:var(--ink2);margin:8px 0 0}
 details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
+details.method summary{color:var(--accent);font-weight:600}
+ol.steps{margin:0 0 10px;padding-left:20px} ol.steps li{margin:0 0 8px}
 </style>
 </head>
 <body>
@@ -87,7 +89,9 @@ details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
 
   <h2>Таблиця кварталів</h2>
   <div class="card scroll"><table id="t_q"></table></div>
-  <p class="note">Як складаються суми: загальний дохід − операційні витрати − податок на прибуток = база виплат; база = пул інвесторів + винагорода КК. «Разом нараховано» = гроші + борг УкрЕнерго (борг виплачується пізніше окремо). Курсивом — оцінка або прогноз: вартість електроенергії, персонал і ПЗ для таких періодів розраховані за середніми показниками фінальних звітів, а частка боргу УкрЕнерго в виплаті — за останніми двома звітами (<span id="ds_note"></span>). Дохідність проєкту «як у звіті компанії» — це число кооперативу: база переведена в долари за курсом НБУ на дату звіту. Розрахунок дашборду бере ту саму базу, але переводить її за курсом Приватбанку на дату виплати, бо інвестори купували долари за ним, тому цифри відрізняються. Для оцінок і прогнозу обидві дохідності — оцінки.</p>
+  <p class="note">Як складаються суми: загальний дохід − операційні витрати − податок на прибуток = база виплат; база = пул інвесторів + винагорода КК. «Разом нараховано» = гроші + борг УкрЕнерго (борг виплачується пізніше окремо). Курсивом — оцінка або прогноз: вартість електроенергії, персонал і ПЗ для таких періодів розраховані за середніми показниками фінальних звітів, а частка боргу УкрЕнерго в виплаті — за останніми двома звітами (<span id="ds_note"></span>). Дохідність проєкту «як у звіті компанії» — це число кооперативу: база переведена в долари за курсом НБУ на дату звіту. Розрахунок дашборду бере ту саму базу, але переводить її за курсом Приватбанку на дату виплати, бо інвестори купували долари за ним, тому цифри відрізняються. Для оцінок і прогнозу обидві дохідності — оцінки. <a href="#method" id="to_method">Як рахується оцінка майбутніх періодів ↓</a></p>
+
+  <details id="method" class="method"><summary>Як рахується оцінка майбутніх періодів</summary><div class="card" id="assump"></div></details>
 
   <h2>Виплати (фактичні)</h2>
   <div class="card scroll"><table id="t_pay"></table></div>
@@ -97,9 +101,7 @@ details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
   <div class="card scroll"><table id="t_rep"></table></div>
   <p class="note">Загальний дохід − усього витрат − податок на прибуток = база виплат. Донарахований податок — повернення раніше утриманого податку у складі доходу.</p>
 
-  <details><summary>Перевірки звітів на узгодженість</summary><div class="card scroll"><table id="t_chk"></table></div></details>
-  <details><summary>Припущення прогнозу</summary><div class="card" id="assump"></div></details>
-  <div class="note" id="warn"></div>
+  <details><summary>Перевірки звітів на узгодженість</summary><div class="card scroll"><table id="t_chk"></table></div></details>  <div class="note" id="warn"></div>
 </div>
 
 <script>
@@ -154,9 +156,26 @@ function render(){
   charts(); tables();
   const a=D.model.assumptions.base;
   $('ds_note').textContent='≈ '+pct(D.model.debt_share,0)+' пулу';
-  $('assump').innerHTML=a?`<p>Частка боргу УкрЕнерго в майбутніх виплатах: <b>${pct(D.model.debt_share,1)}</b> (за останніми двома звітами; у конфігурації можна задати вручну).</p><p>Дохід за попередні та прогнозні місяці: «після електроенергії» з чату + оцінка вартості електроенергії (≈ ${uah(a.elec_per_cycle)} на цикл за фінальними звітами).</p><p>Калібрувальний коефіцієнт попередніх даних: <b>${D.model.calibration.toFixed(3)}</b> (попередній дохід у чаті / фінальний у звіті; попередні числа ділимо на нього).</p>
-   <p>База: ${a.cycles_per_day.toFixed(2)} циклів/добу · ${uah(a.net_per_cycle)} на цикл (дохід після електроенергії) · інші витрати ${uah(a.other_opex_per_day)}/добу · курс НБУ ${a.fx}. Низький/високий сценарій — мінімум/максимум за останні 3 місяці. Податок на прибуток у прогнозі = 0. Сезонність не враховується.</p>`:'Недостатньо даних для прогнозу.';
+  $('assump').innerHTML=method();
   $('warn').textContent=D.warnings.join('; ');
+}
+
+// Step-by-step description of the estimate, filled with the live numbers of the model.
+function method(){
+  const a=D.model.assumptions.base, P=D.model.params, k=D.model.calibration;
+  if(!a) return 'Недостатньо даних для прогнозу.';
+  const q=D.quarters.find(x=>x.status!=='locked');
+  const taxTxt=q&&(q.tax_adj>0?'+ повернення податку '+uah(q.tax_adj):'− податок на прибуток '+uah(Math.abs(q.tax_adj)));
+  return `<ol class="steps">
+   <li><b>Що є фактом.</b> Фінальний звіт кооперативу за період — точні дані. Щомісячне повідомлення в чаті містить лише одне число (дохід після закупівлі електроенергії, без остаточної звірки), тому для місяців без фінального звіту результат — оцінка.</li>
+   <li><b>Попередні місяці.</b> Число з чату ділиться на калібрувальний коефіцієнт <b>${k.toFixed(3)}</b> = опубліковане в чаті / фінальне зі звітів за ті самі періоди (так попередні дані занижували результат після звірки). Вартість електроенергії для них дорахована за середньою з фінальних звітів: ≈ ${uah(a.elec_per_cycle)} на цикл.</li>
+   <li><b>Місяці без даних</b> (середнє за останні ${P.last_n_months} місяці з даними): ${a.cycles_per_day.toFixed(2).replace('.',',')} циклів на добу × днів у місяці = цикли; цикли × ${uah(a.net_per_cycle)} (дохід після електроенергії на цикл) = дохід після електроенергії; плюс електроенергія (цикли × ${uah(a.elec_per_cycle)}) = загальний дохід. «Низький»/«високий» сценарій — мінімум/максимум цих двох показників за ті самі місяці (це діапазон на графіках).</li>
+   <li><b>Витрати.</b> Персонал і ПЗ/інтернет/РКО — ${uah(a.other_opex_per_day)} на добу (середнє з фінальних звітів, частка персоналу ${pct(a.personnel_share,0)}). Податок на прибуток у прогнозі — ${uah(P.profit_tax_uah)} за квартал.</li>
+   <li><b>База і розподіл.</b> Місяці підсумовуються по кварталу: база = дохід після електроенергії − персонал і ПЗ ± податок. База в $ = база / ${a.fx} (курс НБУ останнього звіту); річна дохідність = база в $ × 365 / днів / ${nf0.format(D.project.capital_usd)} $. Шкала розподілу з договору (до 12% — 100% інвестору, 12–18% — 60/40, вище — 40/60) дає частку інвесторів у базі, тобто пул; решта — винагорода Управляючої компанії. Шкала застосовується до кварталу в цілому.</li>
+   <li><b>Ваша виплата.</b> Пул × ваша частка (${(D.investor.share*100).toFixed(4).replace('.',',')}%). Борг УкрЕнерго — ${pct(D.model.debt_share,1)} пулу (за двома останніми звітами), решта — гроші. Дата виплати ≈ кінець кварталу + ${P.payout_lag_days} днів; у доларах за курсом Приватбанку (для майбутньої дати — останній відомий).</li>
+   <li><b>Фіксація.</b> Коли приходять фінальні звіти за всі місяці кварталу, квартал стає «зафіксовано» і береться з реальних даних, поправки й прогноз для нього зникають.</li>
+  </ol>`+(q?`<p><b>Приклад, ${q.label}:</b> дохід після електроенергії ${uah(q.net)} − інші витрати ${uah(q.other_opex)} ${taxTxt} = база ${uah(q.base)}. Дохідність проєкту ${pct(q.annual_yield)}, інвестора за шкалою ${pct(q.investor_annual_yield)}, тобто частка інвесторів у базі ${pct(q.investor_annual_yield/q.annual_yield)} → пул ${uah(q.pool)}. Ваша частка ${uah(q.payout_uah)} (гроші ≈ ${uah(q.cash_uah)}, борг ≈ ${uah(q.debt_uah)}), у доларах ≈ ${usd(q.payout_usd)}.</p>`:'')+
+  `<p class="note"><b>Обмеження.</b> Даних поки мало (кілька місяців), сезонність не враховується, а борг УкрЕнерго і податок — припущення. Це орієнтир, а не гарантія. Параметри (кількість місяців, частка боргу, податок, затримка виплати) задаються в <code>config/projects/eti1.yaml</code>.</p>`;
 }
 
 function layout(extra){
@@ -292,6 +311,7 @@ function tables(){
   $('t_chk').innerHTML=th(['Звіт','Перевірка','Результат','Деталі'])+D.checks.map(c=>td([c.report,c.name,c.ok?'<span class="ok">✓ ок</span>':'<span class="bad">✗ розбіжність</span>',c.detail])).join('');
 }
 
+$('to_method').addEventListener('click',()=>{$('method').open=true});
 ['amount','start','valuation'].forEach(id=>$(id).addEventListener('input',()=>{ if(id==='amount') shareDirty=false; debounced()}));
 $('share').addEventListener('input',()=>{shareDirty=true;debounced()});
 $('reset').addEventListener('click',()=>{try{localStorage.removeItem('eti_inv')}catch(e){};shareDirty=false;['amount','start','valuation','share'].forEach(i=>$(i).value='');load(true)});
