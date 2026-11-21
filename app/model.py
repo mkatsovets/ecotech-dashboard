@@ -73,6 +73,10 @@ class MonthRow:
     other_opex: float
     adj: float = 0.0                 # prior-period tax returned minus profit tax
     elec: float = 0.0                # electricity purchase cost (actual for final, estimated otherwise)
+    personnel: float = 0.0           # other_opex split into categories
+    software: float = 0.0
+    prior_tax: float = 0.0           # previously withheld profit tax returned (income side)
+    profit_tax: float = 0.0
     pool: float | None = None
     debt: float | None = None
     mgmt: float | None = None
@@ -105,6 +109,7 @@ class Assumptions:
     other_opex_per_day: float
     fx: float
     elec_per_cycle: float = 0.0
+    personnel_share: float = 0.5     # personnel / (personnel + software) of other opex
 
 
 # --- helpers ---------------------------------------------------------------------------
@@ -134,6 +139,12 @@ def other_opex_per_day(reports: list[Report]) -> float:
     return sum(r.other_opex for r in reports) / days if days else 0.0
 
 
+def personnel_share(reports: list[Report]) -> float:
+    """Personnel's share of (personnel + software/internet/bank) costs, from final reports."""
+    total = sum(r.other_opex for r in reports)
+    return sum(r.opex_personnel for r in reports) / total if total else 0.5
+
+
 def electricity_per_cycle(reports: list[Report]) -> float:
     """Electricity purchase cost per cycle, from final reports that state the cycles."""
     cycles = sum(r.cycles for r in reports if r.cycles)
@@ -156,7 +167,7 @@ def calibration(reports: list[Report], prelims: list[Prelim]) -> float:
 # --- months ----------------------------------------------------------------------------
 
 def build_months(reports: list[Report], prelims: list[Prelim], k: float,
-                 elec_per_cycle: float = 0.0) -> list[MonthRow]:
+                 elec_per_cycle: float = 0.0, pers_share: float = 0.5) -> list[MonthRow]:
     pm = {p.month: p for p in prelims}
     rows: dict[date, MonthRow] = {}
     for r in reports:
@@ -171,6 +182,8 @@ def build_months(reports: list[Report], prelims: list[Prelim], k: float,
             rows[m] = MonthRow(
                 month=m, status="final", days=d, cycles=cycles,
                 net=r.net_ops * f, other_opex=r.other_opex * f, elec=r.opex_electricity * f,
+                personnel=r.opex_personnel * f, software=r.opex_software * f,
+                prior_tax=r.prior_tax * f, profit_tax=r.profit_tax * f,
                 adj=(r.prior_tax - r.profit_tax) * f,
                 pool=r.pool * f, debt=r.debt_pool * f, mgmt=r.mgmt * f,
                 fx=r.nbu_rate, pay_date=r.pay_date, report_key=r.key,
@@ -181,6 +194,7 @@ def build_months(reports: list[Report], prelims: list[Prelim], k: float,
             rows[p.month] = MonthRow(
                 month=p.month, status=p.status, days=p.days, cycles=p.cycles,
                 net=p.net_uah / k, other_opex=opd * p.days, raw_prelim=p.net_uah,
+                personnel=opd * p.days * pers_share, software=opd * p.days * (1 - pers_share),
                 elec=elec_per_cycle * (p.cycles or 0.0))
     return [rows[m] for m in sorted(rows)]
 
@@ -197,10 +211,11 @@ def derive_assumptions(months: list[MonthRow], reports: list[Report], fc: dict) 
     fx = fc.get("fx_uah_per_usd") or latest.nbu_rate
     opd = other_opex_per_day(reports)
     epc = electricity_per_cycle(reports)
+    ps = personnel_share(reports)
     return {
-        "base": Assumptions(mean(cpd), mean(npc), opd, fx, epc),
-        "low": Assumptions(min(cpd), min(npc), opd, fx, epc),
-        "high": Assumptions(max(cpd), max(npc), opd, fx, epc),
+        "base": Assumptions(mean(cpd), mean(npc), opd, fx, epc, ps),
+        "low": Assumptions(min(cpd), min(npc), opd, fx, epc, ps),
+        "high": Assumptions(max(cpd), max(npc), opd, fx, epc, ps),
     }
 
 
@@ -217,6 +232,8 @@ def extend_with_forecast(months: list[MonthRow], a: Assumptions, through: date) 
         cycles = a.cycles_per_day * days
         out.append(MonthRow(month=d, status="forecast", days=days, cycles=cycles,
                             net=cycles * a.net_per_cycle, other_opex=a.other_opex_per_day * days,
+                            personnel=a.other_opex_per_day * days * a.personnel_share,
+                            software=a.other_opex_per_day * days * (1 - a.personnel_share),
                             elec=cycles * a.elec_per_cycle))
     return out
 
@@ -239,7 +256,9 @@ def build_quarters(months: list[MonthRow], capital: float, tiers, fx_fallback: f
         locked = all(m.is_final for m in ms)
         row = {"label": f"Q{q} {y}", "year": y, "quarter": q, "days": days, "cycles": cycles,
                "months": [m.month.isoformat() for m in ms], "counts": counts, "net": net,
-               "gross": gross, "elec": gross - net, "other_opex": other}
+               "gross": gross, "elec": gross - net, "other_opex": other,
+               "personnel": sum(m.personnel for m in ms), "software": sum(m.software for m in ms),
+               "prior_tax": sum(m.prior_tax for m in ms)}
         if locked:
             base = sum(m.base for m in ms)
             base_usd = sum(m.base / m.fx for m in ms)
@@ -247,6 +266,7 @@ def build_quarters(months: list[MonthRow], capital: float, tiers, fx_fallback: f
             pool = sum(m.pool for m in ms)
             row.update(
                 status="locked", base=base, pool=pool, mgmt=sum(m.mgmt for m in ms),
+                profit_tax=sum(m.profit_tax for m in ms),
                 debt=sum(m.debt for m in ms), tax_adj=sum(m.adj for m in ms),
                 fx=base / base_usd if base_usd else None,
                 annual_yield=base_usd * DAYS_IN_YEAR / days / capital,
@@ -254,13 +274,13 @@ def build_quarters(months: list[MonthRow], capital: float, tiers, fx_fallback: f
                 pay_date=max((m.pay_date for m in ms if m.pay_date), default=None),
                 pay_date_estimated=False)
         else:
-            tax = -profit_tax if counts["forecast"] or counts["preliminary"] or counts["reconciled"] else 0.0
-            adj = sum(m.adj for m in ms) + tax
+            extra_tax = profit_tax if counts["forecast"] or counts["preliminary"] or counts["reconciled"] else 0.0
+            adj = sum(m.adj for m in ms) - extra_tax
             base = net - other + adj
             sp = split_base(base, fx_fallback, days, capital, tiers)
             row.update(
                 status="estimate" if (counts["final"] + counts["preliminary"] + counts["reconciled"]) else "forecast",
-                base=base, pool=sp.pool_uah, mgmt=sp.mgmt_uah, debt=None, tax_adj=adj, fx=fx_fallback,
+                profit_tax=sum(m.profit_tax for m in ms) + extra_tax, base=base, pool=sp.pool_uah, mgmt=sp.mgmt_uah, debt=None, tax_adj=adj, fx=fx_fallback,
                 annual_yield=sp.annual_yield, investor_annual_yield=sp.investor_annual_yield,
                 pay_date=quarter_end(y, q) + timedelta(days=lag_days), pay_date_estimated=True)
         out.append(row)
@@ -273,7 +293,7 @@ def run_all(reports: list[Report], prelims: list[Prelim], cfg: dict, today: date
     capital = float(cfg["capital_usd"])
     tiers = tiers_from_config(cfg["tiers"])
     k = fc.get("calibration") or calibration(reports, prelims)
-    actual = build_months(reports, prelims, k, electricity_per_cycle(reports))
+    actual = build_months(reports, prelims, k, electricity_per_cycle(reports), personnel_share(reports))
     assumptions = derive_assumptions(actual, reports, fc)
 
     qy, qq = quarter_key(today)

@@ -89,6 +89,14 @@ def test_gross_income_and_quarter_amounts_reconcile(repo, cfg):
     assert m[date(2026, 11, 1)].gross > m[date(2026, 11, 1)].net
     for q in res["quarters"]:   # the displayed columns must add up for every quarter
         assert q["gross"] - q["elec"] - q["other_opex"] + q["tax_adj"] == pytest.approx(q["base"], abs=0.01), q["label"]
+        # category view: income + returned tax - electricity - personnel - software - profit tax = base
+        assert (q["gross"] + q["prior_tax"] - q["elec"] - q["personnel"] - q["software"] - q["profit_tax"]
+                == pytest.approx(q["base"], abs=0.01)), q["label"]
+        assert q["personnel"] + q["software"] == pytest.approx(q["other_opex"])
+    q = {r["label"]: r for r in res["quarters"]}
+    assert q["Q2 2026"]["personnel"] == pytest.approx(90062.47) and q["Q2 2026"]["profit_tax"] == pytest.approx(536119.56)
+    assert q["Q3 2026"]["prior_tax"] == pytest.approx(536119.56)
+    assert q["Q3 2026"]["software"] == pytest.approx(13100.00 + 6666.66)
 
 
 def test_forecast_is_replaced_by_actuals(repo, cfg):
