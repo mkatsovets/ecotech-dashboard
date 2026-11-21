@@ -6,7 +6,7 @@ from datetime import date
 
 from .model import check_reports, run_all
 from .returns import annualized, xirr
-from .waterfall import tiers_from_config
+from .waterfall import DAYS_IN_YEAR, tiers_from_config
 
 
 def _jsonable(v):
@@ -81,6 +81,7 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
     quarters = []
     ds = model["debt_share"]
     pay_by_key = {p["key"]: p for p in payments}
+    rep_by_key = {r.key: r for r in reports}
     for q in model["quarters"]:
         row = dict(q)
         row["payout_uah"] = q["pool"] * S                    # accrued: cash + UkrEnergo debt share
@@ -100,6 +101,16 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
             row["cash_usd"] = row["payout_usd"] * (1 - ds) if row["payout_usd"] is not None else None
             row["split_is_estimate"] = True
         row["annual"] = annualized(row["payout_usd"], A, q["days"]) if row["payout_usd"] is not None else None
+        row["annual_cash"] = annualized(row["cash_usd"], A, q["days"]) if row["cash_usd"] is not None else None
+        # project yield recomputed in dollars at the Privatbank rate of the payout date(s)
+        # (the company's own figure converts the same base at the NBU rate of the report date)
+        if q["debt"] is not None:
+            parts = [(rep_by_key[k].base, pay_by_key[k]["rate"]) for k in q.get("report_keys", [])
+                     if k in rep_by_key and k in pay_by_key]
+            base_usd = sum(b / r for b, r in parts) if parts and all(r for _, r in parts) else None
+        else:
+            base_usd = usd(q["base"], q["pay_date"])
+        row["annual_yield_privat"] = base_usd * DAYS_IN_YEAR / q["days"] / capital if base_usd else None
         # investor's yield without the debt share: the company's yield scaled by cash / accrued
         row["investor_annual_yield_cash"] = (q["investor_annual_yield"] * row["cash_uah"] / row["payout_uah"]
                                              if row["payout_uah"] else 0.0)
