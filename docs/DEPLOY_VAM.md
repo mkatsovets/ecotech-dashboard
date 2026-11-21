@@ -27,19 +27,19 @@ Image: built by GitHub Actions on every push to `main`, published to Docker Hub.
    image `<DOCKERHUB_USERNAME>/ecotech-dashboard`, tag `latest`.
 2. **Volumes:** mount a volume on `/data` (this is where `ecotech.db` is stored; without it the
    database is lost on every redeploy).
-3. **Variables:** `PORT=8080` (default already). Later, for the admin side:
+3. **Variables:** none required (`PORT=80` is the default in the image). Later, for the admin side:
    `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`. Never put them in the image or the repository.
 4. **Resources:** 1 node, ~256 MB RAM / 1 cloudlet range is enough.
-5. **Public access:** the container listens on 8080. Check which of these your V/AM offers
-   and use the simplest one:
-   - an NGINX **load balancer** layer in front, proxying to container port 8080, plus the
-     Let's Encrypt add-on for HTTPS and a custom domain;
-   - the platform's shared balancer / an **endpoint** (or public IP) mapped to port 8080.
-   The container runs as root, so `PORT=80` also works if the platform routes HTTP to port 80.
+5. **Public access:** the container listens on port 80, which is where the platform's shared load
+   balancer sends HTTP, so the environment URL works as is. For a custom domain / HTTPS use the
+   Let's Encrypt add-on or an NGINX load balancer layer in front.
 6. Open the environment URL: the page must load and `/healthz` must return `{"status":"ok"}`.
 
 ### Troubleshooting
 
+- *502 "The server is not listening to the :80 port on its backend"*: the app listens on another
+  port. Make sure the container variable `PORT` is `80` (older images had `8080`; edit the variable
+  and restart the container) and look at the container log.
 - *"The image is based on unsupported OS template for deploying it as a custom container"*:
   the base image must be built on an OS version the platform supports. The Dockerfile pins
   `python:3.12-slim-bookworm` (Debian 12) for this reason. If it is still refused, try

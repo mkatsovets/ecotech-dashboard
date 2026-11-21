@@ -1,10 +1,10 @@
 # Local check of the same image that runs on V/AM:
-#   docker compose up --build        ->  http://localhost:8080/
+#   docker compose up --build        ->  http://localhost:8080/  (container port 80)
 services:
   dashboard:
     build: .
     ports:
-      - "8080:8080"
+      - "8080:80"
     volumes:
       - ecotech-data:/data
     # environment:            # admin side (not built yet) will read these
