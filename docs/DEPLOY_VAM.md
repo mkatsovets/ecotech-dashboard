@@ -1,27 +1,30 @@
 # Deploying to V/AM (custom Docker container)
 
 The app is one container: FastAPI + static page, SQLite on a persistent volume.
-Image: built by GitHub Actions on every push to `main`, published to GitHub Container Registry.
+Image: built by GitHub Actions on every push to `main`, published to Docker Hub.
 
-## 1. One-time: put the code on GitHub and get an image
+## 1. One-time: put the code on GitHub and get an image on Docker Hub
 
-1. Create an empty **private** repository on GitHub (for example `ecotech-dashboard`), no README.
-2. Push this project:
+1. Docker Hub: create an access token (Account settings -> Security -> New access token,
+   scope Read & Write). Nothing else is needed there: the repository is created by the first push.
+2. Create an empty **private** repository on GitHub (for example `ecotech-dashboard`), no README.
+3. In it: Settings -> Secrets and variables -> Actions -> add `DOCKERHUB_USERNAME` (your Docker Hub login)
+   and `DOCKERHUB_TOKEN` (the token from step 1).
+4. Push this project:
    ```powershell
    git remote add origin https://github.com/<owner>/ecotech-dashboard.git
    git push -u origin main
    ```
-3. The `docker` workflow (Actions tab) runs the tests and publishes
-   `ghcr.io/<owner>/ecotech-dashboard:latest` (the owner name is lower-cased).
-4. Make the package public (GitHub -> your profile -> Packages -> ecotech-dashboard ->
-   Package settings -> Change visibility), so V/AM can pull it without credentials.
-   The image holds only code, configuration and the cooperative's report data, no secrets.
-   If you keep it private, add registry credentials in V/AM (a GitHub personal access token with `read:packages`).
+5. The `docker` workflow (Actions tab) runs the tests and publishes
+   `docker.io/<DOCKERHUB_USERNAME>/ecotech-dashboard:latest`.
+6. On Docker Hub make the repository **public** (a free account has one private repository;
+   if you keep it private, add the registry credentials in V/AM). The image holds only code,
+   configuration and the cooperative's report data, no secrets.
 
 ## 2. Create the environment in V/AM
 
-1. **New environment -> Docker** tab -> **Select image** -> registry source (Docker Hub / custom registry),
-   image `ghcr.io/<owner>/ecotech-dashboard`, tag `latest`.
+1. **New environment -> Docker** tab -> **Select image** -> Docker Hub,
+   image `<DOCKERHUB_USERNAME>/ecotech-dashboard`, tag `latest`.
 2. **Volumes:** mount a volume on `/data` (this is where `ecotech.db` is stored; without it the
    database is lost on every redeploy).
 3. **Variables:** `PORT=8080` (default already). Later, for the admin side:
