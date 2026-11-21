@@ -39,7 +39,8 @@ reference_investor:
   share: 0.00830357
   invested_usd: 25000
   start_date: 2025-05-28
-  valuation_usd: 25000        # current valuation of the stake, manual
+  valuation_markup: 0.10      # default valuation of the stake = invested amount x (1 + markup);
+                              # follows the amount on the page unless the visitor edits it
 
 # Investor-side FX: Privatbank card conversion, "sell" column (matches the
 # rates the owner used in the Excel tracker: 41.84, 45.0451, 45.8716).

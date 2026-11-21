@@ -67,7 +67,7 @@ ol.steps{margin:0 0 10px;padding-left:20px} ol.steps li{margin:0 0 8px}
     <label>Дата початку інвестування<input id="start" type="date"></label>
     <label>Поточна оцінка паю, $<input id="valuation" type="number" min="0" step="100"></label>
     <button id="reset">Скинути (мінімальна частка)</button>
-    <div class="sub" style="max-width:300px">Частка за замовчуванням розрахована за мінімальним внеском. У кожного інвестора вона своя (залежить від курсу, за яким вносили) — змініть поле, якщо знаєте свій відсоток.</div>
+    <div class="sub" style="max-width:300px">Частка за замовчуванням розрахована за мінімальним внеском, оцінка паю — сума + 10%; обидва значення змінюються разом із сумою, якщо їх не відредагувати вручну. У кожного інвестора вона своя (залежить від курсу, за яким вносили) — змініть поле, якщо знаєте свій відсоток.</div>
   </div>
 
   <div class="kpis" id="kpis"></div>
@@ -121,8 +121,8 @@ const sum = (rows,k) => rows.reduce((a,r)=>a+(r[k]||0),0);
 const STATUS ={final:'Фінал',reconciled:'Попередній (звірка)',preliminary:'Попередній',forecast:'Прогноз'};
 let D=null, ref=null, timer=null;
 
-function saveState(){try{localStorage.setItem('eti_inv',JSON.stringify({a:$('amount').value,s:$('share').value,st:$('start').value,v:$('valuation').value,sd:shareDirty}))}catch(e){}}
-let shareDirty=false;
+function saveState(){try{localStorage.setItem('eti_inv',JSON.stringify({a:$('amount').value,s:$('share').value,st:$('start').value,v:$('valuation').value,sd:shareDirty,vd:valDirty}))}catch(e){}}
+let shareDirty=false, valDirty=false;   // true once the visitor typed the value by hand
 function loadState(){try{return JSON.parse(localStorage.getItem('eti_inv')||'null')}catch(e){return null}}
 
 async function load(first){
@@ -130,12 +130,13 @@ async function load(first){
   if($('amount').value) p.set('amount',$('amount').value);
   if(shareDirty && $('share').value) p.set('share',(parseFloat($('share').value)/100).toString());
   if($('start').value) p.set('start',$('start').value);
-  if($('valuation').value) p.set('valuation',$('valuation').value);
+  if(valDirty && $('valuation').value) p.set('valuation',$('valuation').value);
   const r=await fetch('/api/dashboard?'+p); if(!r.ok){$('warn').textContent='Помилка даних: '+r.status;return}
   D=await r.json();
   if(first){ref=D.investor;}
-  if(!$('amount').value||first){$('amount').value=D.investor.amount;$('start').value=D.investor.start;$('valuation').value=D.investor.valuation;}
+  if(!$('amount').value||first){$('amount').value=D.investor.amount;$('start').value=D.investor.start;}
   if(!shareDirty) $('share').value=(D.investor.share*100).toFixed(6);
+  if(!valDirty) $('valuation').value=Math.round(D.investor.valuation*100)/100;
   render(); saveState();
 }
 const debounced=()=>{clearTimeout(timer);timer=setTimeout(()=>load(false),350)};
@@ -148,7 +149,7 @@ function render(){
   $('asof').textContent='Дані станом на '+dt(D.today)+' · прогноз оновлюється новими звітами кооперативу';
   $('kpis').innerHTML=[
     kpi('Отримано виплат',usd(k.received_cash_usd),uah(k.received_cash_uah)+' · '+pct(k.return_pct)+' від внеску'),
-    kpi('XIRR (грошові потоки)',pct(k.xirr_cash),'з урахуванням боргу УкрЕнерго: '+pct(k.xirr_with_debt)),
+    kpi('XIRR (грошові потоки)',pct(k.xirr_cash),'з урахуванням боргу УкрЕнерго: '+pct(k.xirr_with_debt)+' · враховує оцінку паю '+usd(k.valuation_usd)),
     kpi('Середньорічна дохідність',pct(k.avg_annual_cash),'за отриманими виплатами, по курсу на дату виплати · з нарахованим боргом УкрЕнерго: '+pct(k.avg_annual_accrued)),
     kpi('План (рік '+D.plan.year+')',pct(D.plan.investor_yield),'дохідність інвестора за презентацією'),
     kpi('Борг УкрЕнерго (ваша частка)',uah(k.debt_left_uah),usd(k.debt_left_usd)+' очікується до виплати'),
@@ -313,10 +314,12 @@ function tables(){
 }
 
 $('to_method').addEventListener('click',()=>{$('method').open=true});
-['amount','start','valuation'].forEach(id=>$(id).addEventListener('input',()=>{ if(id==='amount') shareDirty=false; debounced()}));
+// A new amount recalculates both the share and the valuation, unless they were edited afterwards.
+['amount','start'].forEach(id=>$(id).addEventListener('input',()=>{ if(id==='amount'){shareDirty=false;valDirty=false} debounced()}));
 $('share').addEventListener('input',()=>{shareDirty=true;debounced()});
-$('reset').addEventListener('click',()=>{try{localStorage.removeItem('eti_inv')}catch(e){};shareDirty=false;['amount','start','valuation','share'].forEach(i=>$(i).value='');load(true)});
-(async()=>{const s=loadState(); if(s){$('amount').value=s.a||'';$('start').value=s.st||'';$('valuation').value=s.v||'';if(s.sd&&s.s){$('share').value=s.s;shareDirty=true}}
+$('valuation').addEventListener('input',()=>{valDirty=true;debounced()});
+$('reset').addEventListener('click',()=>{try{localStorage.removeItem('eti_inv')}catch(e){};shareDirty=false;valDirty=false;['amount','start','valuation','share'].forEach(i=>$(i).value='');load(true)});
+(async()=>{const s=loadState(); if(s){$('amount').value=s.a||'';$('start').value=s.st||'';if(s.vd&&s.v){$('valuation').value=s.v;valDirty=true}if(s.sd&&s.s){$('share').value=s.s;shareDirty=true}}
   await load(!s);})();
 </script>
 </body>

@@ -30,7 +30,9 @@ def investor_params(cfg: dict, amount: float | None, share: float | None,
         "share": float(share) if share is not None else amount * per_usd,
         "share_per_usd": per_usd,
         "start": start or ref["start_date"],
-        "valuation": float(valuation) if valuation is not None else amount,
+        # default valuation: invested amount + markup (10% in the config), unless set explicitly
+        "valuation": float(valuation) if valuation is not None
+        else amount * (1 + float(ref.get("valuation_markup", 0.10))),
     }
 
 

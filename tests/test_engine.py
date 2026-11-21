@@ -198,6 +198,19 @@ def test_quarter_yields(repo, cfg):
     assert "annual_yield_privat" not in q["Q3 2026"]
 
 
+def test_default_valuation_is_amount_plus_ten_percent(repo, cfg):
+    from app.service import build_dashboard
+    a = build_dashboard(repo, FakeFx(), cfg, TODAY)
+    assert a["investor"]["valuation"] == pytest.approx(27500)         # 25 000 + 10%
+    b = build_dashboard(repo, FakeFx(), cfg, TODAY, amount=50000)
+    assert b["investor"]["valuation"] == pytest.approx(55000)         # follows the amount
+    c = build_dashboard(repo, FakeFx(), cfg, TODAY, amount=50000, valuation=48000)
+    assert c["investor"]["valuation"] == 48000                        # manual value wins
+    # the terminal value enters XIRR: a higher valuation means a higher return
+    low = build_dashboard(repo, FakeFx(), cfg, TODAY, valuation=25000)
+    assert a["kpi"]["xirr_cash"] > low["kpi"]["xirr_cash"]
+
+
 def test_service_share_scales_linearly(repo, cfg):
     from app.service import build_dashboard
     a = build_dashboard(repo, FakeFx(), cfg, TODAY)
