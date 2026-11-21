@@ -31,6 +31,9 @@ h1{font-size:22px;margin:0 0 2px} h2{font-size:16px;margin:28px 0 10px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 .kpi .l{font-size:12px;color:var(--muted)} .kpi .v{font-size:24px;font-weight:650;margin:2px 0}
 .kpi .s{font-size:12px;color:var(--ink2)}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 24px;margin:0}
+.facts dt{font-size:12px;color:var(--muted)} .facts dd{margin:0;font-weight:600}
+tr.total td{font-weight:650}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:860px){.grid2{grid-template-columns:1fr}}
 .chart{height:320px}
 table{border-collapse:collapse;width:100%;font-size:13px}
@@ -60,6 +63,9 @@ details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
 
   <div class="kpis" id="kpis"></div>
 
+  <h2>Про проєкт</h2>
+  <div class="card"><dl class="facts" id="facts"></dl></div>
+
   <h2>Динаміка по місяцях</h2>
   <div class="grid2">
     <div class="card"><div class="chart" id="c_net"></div></div>
@@ -75,6 +81,7 @@ details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
 
   <h2>Таблиця кварталів</h2>
   <div class="card scroll"><table id="t_q"></table></div>
+  <p class="note">Як складаються суми: загальний дохід − електроенергія − інші витрати ± податок = база виплат; база = пул інвесторів + винагорода КК. «Разом нараховано» = гроші + борг УкрЕнерго (борг виплачується пізніше окремо). Для оцінок і прогнозу розбивка на гроші й борг невідома, показано лише «разом».</p>
 
   <h2>Виплати (фактичні)</h2>
   <div class="card scroll"><table id="t_pay"></table></div>
@@ -82,6 +89,7 @@ details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
 
   <h2>Звіти кооператива</h2>
   <div class="card scroll"><table id="t_rep"></table></div>
+  <p class="note">Загальний дохід − усього витрат − податок на прибуток = база виплат. Донарахований податок — повернення раніше утриманого податку у складі доходу.</p>
 
   <details><summary>Перевірки звітів на узгодженість</summary><div class="card scroll"><table id="t_chk"></table></div></details>
   <details><summary>Припущення прогнозу</summary><div class="card" id="assump"></div></details>
@@ -99,7 +107,8 @@ const pct = (v,d=1) => v==null?'—':(v*100).toFixed(d).replace('.',',')+'%';
 const dt = s => s?new Date(s).toLocaleDateString('uk-UA'):'—';
 const MON = ['січ','лют','бер','кві','тра','чер','лип','сер','вер','жов','лис','гру'];
 const mlabel = s => {const d=new Date(s);return MON[d.getUTCMonth()]+' '+String(d.getUTCFullYear()).slice(2)};
-const STATUS = {final:'Фінал',reconciled:'Попередній (звірка)',preliminary:'Попередній',forecast:'Прогноз'};
+const sum = (rows,k) => rows.reduce((a,r)=>a+(r[k]||0),0);
+const STATUS ={final:'Фінал',reconciled:'Попередній (звірка)',preliminary:'Попередній',forecast:'Прогноз'};
 let D=null, ref=null, timer=null;
 
 function saveState(){try{localStorage.setItem('eti_inv',JSON.stringify({a:$('amount').value,s:$('share').value,st:$('start').value,v:$('valuation').value,sd:shareDirty}))}catch(e){}}
@@ -130,14 +139,15 @@ function render(){
   $('kpis').innerHTML=[
     kpi('Отримано виплат',usd(k.received_cash_usd),uah(k.received_cash_uah)+' · '+pct(k.return_pct)+' від внеску'),
     kpi('XIRR (грошові потоки)',pct(k.xirr_cash),'з урахуванням боргу УкрЕнерго: '+pct(k.xirr_with_debt)),
-    kpi('Середньорічна дохідність',pct(k.avg_annual_accrued),'за виплатами, з нарахованим боргом, по курсу на дату виплати'),
-    kpi('План (рік '+D.plan.year+')',pct(D.plan.investor_yield),'дохідність інвестора за презентацією; проєкт '+pct(D.plan.project_yield,0)),
+    kpi('Середньорічна дохідність',pct(k.avg_annual_cash),'за отриманими виплатами, по курсу на дату виплати · з нарахованим боргом УкрЕнерго: '+pct(k.avg_annual_accrued)),
+    kpi('План (рік '+D.plan.year+')',pct(D.plan.investor_yield),'дохідність інвестора за презентацією'),
     kpi('Борг УкрЕнерго (ваша частка)',uah(k.debt_left_uah),usd(k.debt_left_usd)+' очікується до виплати'),
     n?kpi('Наступна виплата ('+n.label+')',usd(n.usd),(n.low_usd!=null?'діапазон '+usd(n.low_usd)+' – '+usd(n.high_usd)+' · ':'')+'≈ '+dt(n.pay_date)+' · '+(n.status==='forecast'?'прогноз':'оцінка за попередніми даними')):''
   ].join('');
+  $('facts').innerHTML=(D.project.details||[]).map(x=>`<div><dt>${x.label}</dt><dd>${x.value}</dd></div>`).join('');
   charts(); tables();
   const a=D.model.assumptions.base;
-  $('assump').innerHTML=a?`<p>Калібрувальний коефіцієнт попередніх даних: <b>${D.model.calibration.toFixed(3)}</b> (попередній дохід у чаті / фінальний у звіті; попередні числа ділимо на нього).</p>
+  $('assump').innerHTML=a?`<p>Дохід за попередні та прогнозні місяці: «після електроенергії» з чату + оцінка вартості електроенергії (≈ ${uah(a.elec_per_cycle)} на цикл за фінальними звітами).</p><p>Калібрувальний коефіцієнт попередніх даних: <b>${D.model.calibration.toFixed(3)}</b> (попередній дохід у чаті / фінальний у звіті; попередні числа ділимо на нього).</p>
    <p>База: ${a.cycles_per_day.toFixed(2)} циклів/добу · ${uah(a.net_per_cycle)} на цикл (дохід після електроенергії) · інші витрати ${uah(a.other_opex_per_day)}/добу · курс НБУ ${a.fx}. Низький/високий сценарій — мінімум/максимум за останні 3 місяці. Податок на прибуток у прогнозі = 0. Сезонність не враховується.</p>`:'Недостатньо даних для прогнозу.';
   $('warn').textContent=D.warnings.join('; ');
 }
@@ -157,17 +167,18 @@ function charts(){
   const groups=[['final','Фінал'],['preliminary','Попередній (з поправкою)'],['forecast','Прогноз']];
   const tr=groups.map(([st,name])=>{
     const sel=M.map(m=>(st==='preliminary'?['preliminary','reconciled'].includes(m.status):m.status===st));
-    const t={type:'bar',name,x,y:M.map((m,i)=>sel[i]?m.net/1e6:null),marker:{color:fill(st==='preliminary'?'preliminary':st)},
-      hovertemplate:'%{y:.2f} млн грн'};
+    const t={type:'bar',name,x,y:M.map((m,i)=>sel[i]?m.gross/1e6:null),marker:{color:fill(st==='preliminary'?'preliminary':st)},
+      customdata:M.map(m=>[m.elec/1e6,m.net/1e6]),
+      hovertemplate:'%{y:.2f} млн грн<br>електроенергія: %{customdata[0]:.2f} · після неї: %{customdata[1]:.2f}'};
     if(st==='forecast'){
       t.marker.pattern={shape:'/',fgcolor:css('--accent'),bgcolor:'rgba(0,0,0,0)',size:6};
       t.marker.line={color:css('--accent'),width:1};
       t.error_y={type:'data',symmetric:false,visible:true,color:css('--muted'),thickness:1.2,width:4,
-        array:M.map(m=>m.net_high!=null?(m.net_high-m.net)/1e6:0),arrayminus:M.map(m=>m.net_low!=null?(m.net-m.net_low)/1e6:0)};
+        array:M.map(m=>m.gross_high!=null?(m.gross_high-m.gross)/1e6:0),arrayminus:M.map(m=>m.gross_low!=null?(m.gross-m.gross_low)/1e6:0)};
     }
     if(st==='preliminary'){t.marker.color=css('--accent2')}
     return t});
-  Plotly.react('c_net',tr,layout({title:{text:'Дохід після електроенергії, млн грн',font:{size:13}},barmode:'overlay',yaxis:{gridcolor:css('--line'),rangemode:'tozero'}}),cfg);
+  Plotly.react('c_net',tr,layout({title:{text:'Загальний дохід за місяць, млн грн (до вирахування електроенергії)',font:{size:13}},barmode:'overlay',yaxis:{gridcolor:css('--line'),rangemode:'tozero'}}),cfg);
   // 2. cycles per month and net per cycle (two charts' worth of info on separate axes would be dual-axis -> use two traces rows)
   const cy=M.map(m=>m.cycles);
   Plotly.react('c_cyc',[
@@ -199,12 +210,14 @@ function charts(){
 function tables(){
   const th=a=>'<tr>'+a.map(x=>`<th>${x}</th>`).join('')+'</tr>', td=a=>'<tr>'+a.map(x=>`<td>${x}</td>`).join('')+'</tr>';
   const st=s=>s==='locked'?'<span class="tag locked">зафіксовано</span>':s==='estimate'?'<span class="tag est">оцінка</span>':'<span class="tag est">прогноз</span>';
-  $('t_q').innerHTML=th(['Квартал','Статус','Днів','Цикли','Дохід після ел.','База виплат','Пул інвесторів','Винагорода КК','Дохідність проєкту','Дохідність інвестора','Ваша виплата, грн','Ваша виплата, $','Дата виплати'])+
-   D.quarters.map(q=>td([q.label,st(q.status),q.days,q.cycles?q.cycles.toFixed(1):'—',uah(q.net),uah(q.base),uah(q.pool),uah(q.mgmt),pct(q.annual_yield),pct(q.investor_annual_yield),uah(q.payout_uah),usd(q.payout_usd),(q.pay_date_estimated?'≈ ':'')+dt(q.pay_date)])).join('');
-  $('t_pay').innerHTML=th(['Період','Дата виплати','Днів','Виплата, грн','Борг УкрЕнерго, грн','Курс Приватбанку','Виплата, $','Річна (отримано)','Річна (нараховано)'])+
-   D.payments.map(p=>td([dt(p.period_start)+' – '+dt(p.period_end),dt(p.pay_date),p.days,uah(p.cash_uah),uah(p.debt_uah),p.rate?nf2.format(p.rate):'—',usd(p.cash_usd),pct(p.annual_cash),pct(p.annual_accrued)])).join('');
-  $('t_rep').innerHTML=th(['Період','Днів','Цикли','Дохід','Витрати на ел.','Персонал','ПЗ/інтернет/РКО','Податок на прибуток','База виплат','Пул інвесторів','з них борг УкрЕнерго','Винагорода КК','Курс НБУ','Дохідність у звіті'])+
-   D.reports.map(r=>td([dt(r.period_start)+' – '+dt(r.period_end),r.days,r.cycles??'—',uah(r.revenue),uah(r.opex_electricity),uah(r.opex_personnel),uah(r.opex_software),uah(r.profit_tax),uah(r.base),uah(r.pool),uah(r.debt_pool),uah(r.mgmt),r.nbu_rate,pct(r.reported_yield,2)])).join('');
+  const sgn=v=>v==null?'—':(v>0?'+':'')+nf0.format(v)+' грн';
+  $('t_q').innerHTML=th(['Квартал','Статус','Днів','Цикли','Загальний дохід','− Електроенергія','− Інші витрати','± Податок','= База виплат','Пул інвесторів','Винагорода КК','Дохідність проєкту','Дохідність інвестора','Ваша виплата, грн','Борг УкрЕнерго, грн','Разом нараховано, грн','Разом нараховано, $','Дата виплати'])+
+   D.quarters.map(q=>td([q.label,st(q.status),q.days,q.cycles?q.cycles.toFixed(1):'—',uah(q.gross),uah(q.elec),uah(q.other_opex),sgn(q.tax_adj),uah(q.base),uah(q.pool),uah(q.mgmt),pct(q.annual_yield),pct(q.investor_annual_yield),uah(q.cash_uah),uah(q.debt_uah),uah(q.payout_uah),usd(q.payout_usd),(q.pay_date_estimated?'≈ ':'')+dt(q.pay_date)])).join('');
+  $('t_pay').innerHTML=th(['Період','Дата виплати','Днів','Виплата (гроші), грн','Борг УкрЕнерго, грн','Разом нараховано, грн','Курс Приватбанку','Виплата, $','Річна (отримано)','Річна (нараховано)'])+
+   D.payments.map(p=>td([dt(p.period_start)+' – '+dt(p.period_end),dt(p.pay_date),p.days,uah(p.cash_uah),uah(p.debt_uah),uah(p.cash_uah+p.debt_uah),p.rate?nf2.format(p.rate):'—',usd(p.cash_usd),pct(p.annual_cash),pct(p.annual_accrued)])).join('')+
+   `<tr class="total">${['Разом','','',uah(sum(D.payments,'cash_uah')),uah(sum(D.payments,'debt_uah')),uah(sum(D.payments,'cash_uah')+sum(D.payments,'debt_uah')),'',usd(sum(D.payments,'cash_usd')),'',''].map(x=>`<td>${x}</td>`).join('')}</tr>`;
+  $('t_rep').innerHTML=th(['Період','Днів','Цикли','Дохід','+ Донарахований податок (повернення)','= Загальний дохід','Електроенергія','Персонал','ПЗ/інтернет/РКО','= Усього витрат','Податок на прибуток','База виплат','Пул інвесторів','з них борг УкрЕнерго','Винагорода КК','Курс НБУ','Дохідність у звіті'])+
+   D.reports.map(r=>td([dt(r.period_start)+' – '+dt(r.period_end),r.days,r.cycles??'—',uah(r.revenue),uah(r.prior_tax),uah(r.total_income),uah(r.opex_electricity),uah(r.opex_personnel),uah(r.opex_software),uah(r.opex_total),uah(r.profit_tax),uah(r.base),uah(r.pool),uah(r.debt_pool),uah(r.mgmt),r.nbu_rate,pct(r.reported_yield,2)])).join('');
   $('t_chk').innerHTML=th(['Звіт','Перевірка','Результат','Деталі'])+D.checks.map(c=>td([c.report,c.name,c.ok?'<span class="ok">✓ ок</span>':'<span class="bad">✗ розбіжність</span>',c.detail])).join('');
 }
 

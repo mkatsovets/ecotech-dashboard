@@ -5,6 +5,18 @@ id: eti1
 name: "Екотек Інвест 1"
 capital_usd: 3000000          # total cooperative capital used for the yield formula
 
+# Project passport shown on the public page (label / value). Personal data of the owner
+# (contract number, personal stake) is deliberately not listed here.
+details:
+  - {label: "Кооператив", value: "Екотек Інвест 1"}
+  - {label: "Загальна потужність", value: "4,2 МВт"}
+  - {label: "Загальна ємність", value: "8,944 МВт·год"}
+  - {label: "Загальна вартість", value: "$3 000 000"}
+  - {label: "Ціна 1 МВт·год ємності", value: "$335 420"}
+  - {label: "Мінімальний внесок", value: "$25 000 (≈ 75 кВт·год ємності)"}
+  - {label: "Місцезнаходження", value: "Волинська область, Володимирський район, Литовезька ТГ, с. Литовеж"}
+  - {label: "Кадастровий номер ділянки", value: "0721182400:04:000:0265"}
+
 # Approximate start of operations: 39 worked days up to 30.06.2026 -> 23.05.2026.
 operation_start: 2026-05-23
 

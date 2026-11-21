@@ -81,7 +81,9 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
     quarters = []
     for q in model["quarters"]:
         row = dict(q)
-        row["payout_uah"] = q["pool"] * S
+        row["payout_uah"] = q["pool"] * S                    # accrued: cash + UkrEnergo debt share
+        row["debt_uah"] = q["debt"] * S if q["debt"] is not None else None
+        row["cash_uah"] = (q["pool"] - q["debt"]) * S if q["debt"] is not None else None
         row["payout_usd"] = usd(row["payout_uah"], q["pay_date"])
         row["annual"] = annualized(row["payout_usd"], A, q["days"]) if row["payout_usd"] is not None else None
         for scen in ("low", "high"):
@@ -105,6 +107,7 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
     flows_debt = flows_val + ([(today, debt_left_usd)] if debt_left_usd else [])
 
     accr_usd_total = sum(p["accrued_usd"] or 0 for p in used)
+    cash_usd_periods = sum(p["cash_usd"] or 0 for p in used)   # payouts only, no repayments
     days_total = sum(p["days"] for p in used)
     next_q = next((q for q in quarters if q["status"] != "locked"), None)
 
@@ -119,6 +122,7 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
         "received_cash_usd": cash_usd,
         "return_pct": cash_usd / A if A else None,
         "debt_left_uah": debt_left_uah, "debt_left_usd": debt_left_usd,
+        "avg_annual_cash": annualized(cash_usd_periods, A, days_total) if days_total else None,
         "avg_annual_accrued": annualized(accr_usd_total, A, days_total) if days_total else None,
         "xirr_cash": xirr(flows_val),
         "xirr_with_debt": xirr(flows_debt),
@@ -134,16 +138,19 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
     for m in model["months"]:
         months.append({
             "month": m.month, "status": m.status, "days": m.days, "cycles": m.cycles, "net": m.net,
+            "gross": m.gross, "elec": m.elec, "gross_low": m.gross_low, "gross_high": m.gross_high,
             "net_per_cycle": (m.net / m.cycles) if m.cycles else None,
             "net_low": m.net_low, "net_high": m.net_high, "raw_prelim": m.raw_prelim,
         })
 
     out = {
         "project": {"id": pid, "name": cfg["name"], "capital_usd": capital,
-                    "tiers": cfg["tiers"], "operation_start": cfg["operation_start"]},
+                    "tiers": cfg["tiers"], "operation_start": cfg["operation_start"],
+                    "details": cfg.get("details", [])},
         "today": today, "investor": inv, "plan": plan, "kpi": kpi,
         "payments": payments, "repayments": repaid, "quarters": quarters, "months": months,
-        "reports": [{**asdict(r), "net_ops": r.net_ops} for r in reports],
+        "reports": [{**asdict(r), "net_ops": r.net_ops, "total_income": r.revenue + r.prior_tax,
+                     "opex_total": r.opex_electricity + r.other_opex} for r in reports],
         "prelims": [asdict(p) for p in prelims],
         "checks": check_reports(reports, capital, tiers_from_config(cfg["tiers"])),
         "model": {"calibration": model["calibration"],

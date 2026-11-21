@@ -72,6 +72,7 @@ class MonthRow:
     net: float                       # revenue after electricity (calibrated for preliminary)
     other_opex: float
     adj: float = 0.0                 # prior-period tax returned minus profit tax
+    elec: float = 0.0                # electricity purchase cost (actual for final, estimated otherwise)
     pool: float | None = None
     debt: float | None = None
     mgmt: float | None = None
@@ -81,10 +82,16 @@ class MonthRow:
     raw_prelim: float | None = None
     net_low: float | None = None
     net_high: float | None = None
+    gross_low: float | None = None
+    gross_high: float | None = None
 
     @property
     def base(self) -> float:
         return self.net - self.other_opex + self.adj
+
+    @property
+    def gross(self) -> float:        # total income before electricity purchases
+        return self.net + self.elec
 
     @property
     def is_final(self) -> bool:
@@ -97,6 +104,7 @@ class Assumptions:
     net_per_cycle: float
     other_opex_per_day: float
     fx: float
+    elec_per_cycle: float = 0.0
 
 
 # --- helpers ---------------------------------------------------------------------------
@@ -126,6 +134,13 @@ def other_opex_per_day(reports: list[Report]) -> float:
     return sum(r.other_opex for r in reports) / days if days else 0.0
 
 
+def electricity_per_cycle(reports: list[Report]) -> float:
+    """Electricity purchase cost per cycle, from final reports that state the cycles."""
+    cycles = sum(r.cycles for r in reports if r.cycles)
+    cost = sum(r.opex_electricity for r in reports if r.cycles)
+    return cost / cycles if cycles else 0.0
+
+
 def calibration(reports: list[Report], prelims: list[Prelim]) -> float:
     """k = preliminary net / final net, pooled over periods where both exist."""
     pm = {p.month: p for p in prelims}
@@ -140,7 +155,8 @@ def calibration(reports: list[Report], prelims: list[Prelim]) -> float:
 
 # --- months ----------------------------------------------------------------------------
 
-def build_months(reports: list[Report], prelims: list[Prelim], k: float) -> list[MonthRow]:
+def build_months(reports: list[Report], prelims: list[Prelim], k: float,
+                 elec_per_cycle: float = 0.0) -> list[MonthRow]:
     pm = {p.month: p for p in prelims}
     rows: dict[date, MonthRow] = {}
     for r in reports:
@@ -154,7 +170,7 @@ def build_months(reports: list[Report], prelims: list[Prelim], k: float) -> list
             cycles = c if c is not None else (r.cycles * d / total_d if r.cycles else None)
             rows[m] = MonthRow(
                 month=m, status="final", days=d, cycles=cycles,
-                net=r.net_ops * f, other_opex=r.other_opex * f,
+                net=r.net_ops * f, other_opex=r.other_opex * f, elec=r.opex_electricity * f,
                 adj=(r.prior_tax - r.profit_tax) * f,
                 pool=r.pool * f, debt=r.debt_pool * f, mgmt=r.mgmt * f,
                 fx=r.nbu_rate, pay_date=r.pay_date, report_key=r.key,
@@ -164,7 +180,8 @@ def build_months(reports: list[Report], prelims: list[Prelim], k: float) -> list
         if p.month not in rows:
             rows[p.month] = MonthRow(
                 month=p.month, status=p.status, days=p.days, cycles=p.cycles,
-                net=p.net_uah / k, other_opex=opd * p.days, raw_prelim=p.net_uah)
+                net=p.net_uah / k, other_opex=opd * p.days, raw_prelim=p.net_uah,
+                elec=elec_per_cycle * (p.cycles or 0.0))
     return [rows[m] for m in sorted(rows)]
 
 
@@ -179,10 +196,11 @@ def derive_assumptions(months: list[MonthRow], reports: list[Report], fc: dict) 
     latest = max(reports, key=lambda r: r.period_end)
     fx = fc.get("fx_uah_per_usd") or latest.nbu_rate
     opd = other_opex_per_day(reports)
+    epc = electricity_per_cycle(reports)
     return {
-        "base": Assumptions(mean(cpd), mean(npc), opd, fx),
-        "low": Assumptions(min(cpd), min(npc), opd, fx),
-        "high": Assumptions(max(cpd), max(npc), opd, fx),
+        "base": Assumptions(mean(cpd), mean(npc), opd, fx, epc),
+        "low": Assumptions(min(cpd), min(npc), opd, fx, epc),
+        "high": Assumptions(max(cpd), max(npc), opd, fx, epc),
     }
 
 
@@ -198,7 +216,8 @@ def extend_with_forecast(months: list[MonthRow], a: Assumptions, through: date) 
         days = calendar.monthrange(d.year, d.month)[1]
         cycles = a.cycles_per_day * days
         out.append(MonthRow(month=d, status="forecast", days=days, cycles=cycles,
-                            net=cycles * a.net_per_cycle, other_opex=a.other_opex_per_day * days))
+                            net=cycles * a.net_per_cycle, other_opex=a.other_opex_per_day * days,
+                            elec=cycles * a.elec_per_cycle))
     return out
 
 
@@ -215,11 +234,12 @@ def build_quarters(months: list[MonthRow], capital: float, tiers, fx_fallback: f
         counts = {s: sum(1 for m in ms if m.status == s) for s in ("final", "reconciled", "preliminary", "forecast")}
         cycles = sum(m.cycles for m in ms) if all(m.cycles is not None for m in ms) else None
         net = sum(m.net for m in ms)
+        gross = sum(m.gross for m in ms)
         other = sum(m.other_opex for m in ms)
         locked = all(m.is_final for m in ms)
         row = {"label": f"Q{q} {y}", "year": y, "quarter": q, "days": days, "cycles": cycles,
                "months": [m.month.isoformat() for m in ms], "counts": counts, "net": net,
-               "other_opex": other}
+               "gross": gross, "elec": gross - net, "other_opex": other}
         if locked:
             base = sum(m.base for m in ms)
             base_usd = sum(m.base / m.fx for m in ms)
@@ -253,7 +273,7 @@ def run_all(reports: list[Report], prelims: list[Prelim], cfg: dict, today: date
     capital = float(cfg["capital_usd"])
     tiers = tiers_from_config(cfg["tiers"])
     k = fc.get("calibration") or calibration(reports, prelims)
-    actual = build_months(reports, prelims, k)
+    actual = build_months(reports, prelims, k, electricity_per_cycle(reports))
     assumptions = derive_assumptions(actual, reports, fc)
 
     qy, qq = quarter_key(today)
@@ -278,6 +298,7 @@ def run_all(reports: list[Report], prelims: list[Prelim], cfg: dict, today: date
         for m in months:
             if m.status == "forecast":
                 setattr(m, f"net_{scen}", by_month[m.month].net)
+                setattr(m, f"gross_{scen}", by_month[m.month].gross)
         by_q = {r["label"]: r for r in s_quarters}
         for r in quarters:
             if r["status"] != "locked":

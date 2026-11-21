@@ -79,6 +79,18 @@ def test_final_period_is_allocated_to_months(repo, cfg):
     assert jul.net / aug.net == pytest.approx(60.4 / 74.5)   # allocated by cycles
 
 
+def test_gross_income_and_quarter_amounts_reconcile(repo, cfg):
+    res = run_all(repo.reports(cfg["id"]), repo.prelims(cfg["id"]), cfg, TODAY)
+    m = {x.month: x for x in res["months"]}
+    # final months: gross income = reported revenue (before electricity), allocated to months
+    assert m[date(2026, 7, 1)].gross + m[date(2026, 8, 1)].gross == pytest.approx(18324039.00, abs=0.01)
+    # preliminary / forecast months add an estimated electricity cost on top of the net figure
+    assert m[date(2026, 10, 1)].gross > m[date(2026, 10, 1)].net
+    assert m[date(2026, 11, 1)].gross > m[date(2026, 11, 1)].net
+    for q in res["quarters"]:   # the displayed columns must add up for every quarter
+        assert q["gross"] - q["elec"] - q["other_opex"] + q["tax_adj"] == pytest.approx(q["base"], abs=0.01), q["label"]
+
+
 def test_forecast_is_replaced_by_actuals(repo, cfg):
     """Adding the final September report must lock Q3 and keep the forecast for Q4 only."""
     reports = repo.reports(cfg["id"])
@@ -133,6 +145,22 @@ def test_service_reference_investor(repo, cfg):
     assert d["kpi"]["received_cash_uah"] == pytest.approx(26347.29 + 47301.78 + 28306.58, abs=1.0)
     assert d["kpi"]["xirr_cash"] is not None
     assert d["kpi"]["next_payout"]["label"] == "Q4 2026"
+
+
+def test_service_cash_and_debt_reconcile(repo, cfg):
+    from app.service import build_dashboard
+    d = build_dashboard(repo, FakeFx(), cfg, TODAY)
+    q = {x["label"]: x for x in d["quarters"]}
+    assert q["Q3 2026"]["cash_uah"] + q["Q3 2026"]["debt_uah"] == pytest.approx(q["Q3 2026"]["payout_uah"])
+    assert q["Q4 2026"]["cash_uah"] is None and q["Q4 2026"]["debt_uah"] is None   # unknown for estimates
+    cash = sum(p["cash_uah"] for p in d["payments"])
+    assert cash == pytest.approx(q["Q2 2026"]["cash_uah"] + q["Q3 2026"]["cash_uah"])
+    assert d["kpi"]["received_cash_uah"] == pytest.approx(cash)
+    # average annual yield: cash-only is lower than with the accrued UkrEnergo debt
+    assert 0 < d["kpi"]["avg_annual_cash"] < d["kpi"]["avg_annual_accrued"]
+    assert any(x["label"] == "Загальна потужність" for x in d["project"]["details"])
+    assert all(r["total_income"] - r["opex_total"] - r["profit_tax"] == pytest.approx(r["base"], abs=0.01)
+               for r in d["reports"])
 
 
 def test_service_share_scales_linearly(repo, cfg):
