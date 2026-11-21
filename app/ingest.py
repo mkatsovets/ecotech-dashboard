@@ -102,7 +102,7 @@ def report_key(start: date, end: date) -> str:
 
 # --- infographic -> report fields (Claude vision) ---------------------------------------------------
 
-MODEL = "claude-opus-5-5"
+MODEL = "claude-sonnet-5-5"             # reading a table from a picture does not need the largest model
 ALLOWED_MEDIA = {"image/png", "image/jpeg", "image/webp"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024        # the API's per-image limit
 
@@ -163,7 +163,7 @@ def extract_report_from_image(data: bytes, media_type: str, client=None, model: 
         max_tokens=16000,
         betas=["server-side-fallback-2026-07-01"],
         fallbacks="default",                      # a policy decline is re-run on a fallback model
-        output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
+        output_config={"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}},
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type,
                                          "data": base64.standard_b64encode(data).decode("ascii")}},

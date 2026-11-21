@@ -232,8 +232,9 @@ def test_parse_image_endpoint(env):
     body = r.json()
     assert body["fields"]["pool"] == 4116179.83 and body["fields"]["key"] == "2026-09"
     call = env.state["claude"].calls[0]
-    assert call["model"] == "claude-opus-5-5"
+    assert call["model"] == "claude-sonnet-5-5"
     assert call["output_config"]["format"]["type"] == "json_schema"
+    assert call["output_config"]["effort"] == "medium"
     assert call["fallbacks"] == "default" and "server-side-fallback-2026-07-01" in call["betas"]
     block = call["messages"][0]["content"][0]
     assert block["type"] == "image" and block["source"]["data"] == png

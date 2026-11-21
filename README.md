@@ -35,7 +35,7 @@ py -m venv .venv
 
 HTTP Basic auth (`admin` / `ADMIN_PASSWORD`; disabled when the variable is not set).
 - final report: form with live consistency checks, or an infographic read by Claude
-  (`ANTHROPIC_API_KEY`, model `claude-opus-5-5`, structured output); the result only fills the
+  (`ANTHROPIC_API_KEY`, model `claude-sonnet-5-5`, effort medium, structured output); the result only fills the
   form, the operator confirms;
 - monthly chat messages: paste the text, the parser proposes rows (`app/ingest.py`);
 - UkrEnergo debt repayments;
