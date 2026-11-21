@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Екотек Інвест Адмінка</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#15191f; --ink2:#4b5563; --muted:#6b7280; --line:#e3e6eb;
+  --accent:#0f766e; --warn:#b45309; --bad:#b91c1c; --ok:#15803d; --warnbg:#fff7e6;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1318; --card:#171c23; --ink:#e8ebf0; --ink2:#b4bcc8; --muted:#8b95a3; --line:#2a313b;
+    --accent:#2dd4bf; --warn:#fbbf24; --bad:#f87171; --ok:#4ade80; --warnbg:#2a2210;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0 0 2px} h2{font-size:16px;margin:30px 0 10px}
+.sub,.hint{color:var(--muted);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--ink2);gap:4px}
+input,select,textarea{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;width:100%}
+textarea{min-height:140px;resize:vertical}
+input.uncertain{border-color:var(--warn);background:var(--warnbg)}
+button{padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer;font:inherit}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) button.primary{color:#04201d}}
+button.danger{color:var(--bad)} button:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left} th{color:var(--muted);font-weight:600;font-size:12px}
+td input{min-width:90px;padding:4px 6px}
+.scroll{overflow-x:auto}
+.ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+#msg{position:sticky;top:0;z-index:5;padding:10px 14px;border-radius:10px;margin:10px 0;display:none;font-size:14px}
+#msg.ok{display:block;background:var(--card);border:1px solid var(--ok)} #msg.err{display:block;background:var(--warnbg);border:1px solid var(--bad);color:var(--bad)}
+.checks li{margin:2px 0;list-style:none} .checks{padding:0;margin:8px 0 0;font-size:13px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Адмінка: дані кооперативу</h1>
+  <div class="sub"><a href="/">← до дашборду</a> · Нові звіти замінюють прогноз: коли додано фінальні звіти за всі місяці кварталу, він фіксується автоматично. Кожна зміна пишеться в журнал.</div>
+  <div id="msg"></div>
+
+  <h2>1. Фінальний звіт кооперативу</h2>
+  <div class="card">
+    <div class="row" style="margin-top:0">
+      <input type="file" id="img" accept="image/png,image/jpeg,image/webp" style="max-width:360px">
+      <button id="read" disabled>Розпізнати зображення через Claude</button>
+      <span class="hint" id="read_hint"></span>
+    </div>
+    <p class="hint">Розпізнані значення лише заповнюють форму. Перевірте їх (жовті поля — модель не впевнена) і дату виплати, яку на інфографіці не вказано. Зберігається тільки після натискання «Зберегти».</p>
+    <div class="grid" id="form"></div>
+    <ul class="checks" id="checks"></ul>
+    <div class="row">
+      <button class="primary" id="save">Зберегти звіт</button>
+      <button id="clear">Очистити форму</button>
+      <span class="hint" id="exists"></span>
+    </div>
+  </div>
+
+  <h2>2. Щомісячні повідомлення з чату</h2>
+  <div class="card">
+    <textarea id="chat" placeholder="Вставте одне або кілька повідомлень компанії («Вітаю, інвестори! …»)"></textarea>
+    <div class="row"><button id="parse">Розібрати текст</button><button id="addrow">Додати рядок вручну</button><span class="hint">Статус «звірка» — компанія повідомила, що фінальну звірку з УкрЕнерго отримано.</span></div>
+    <div class="scroll" id="mrows" style="margin-top:10px"></div>
+    <div class="row"><button class="primary" id="msave" style="display:none">Зберегти місяці</button></div>
+  </div>
+
+  <h2>3. Погашення боргу УкрЕнерго</h2>
+  <div class="card">
+    <div class="grid">
+      <label>Дата погашення<input type="date" id="r_day"></label>
+      <label>Сума, грн (вся для інвесторів кооперативу)<input type="number" step="0.01" id="r_sum"></label>
+      <label>Примітка<input type="text" id="r_note" maxlength="500"></label>
+    </div>
+    <div class="row"><button class="primary" id="rsave">Зберегти погашення</button></div>
+  </div>
+
+  <h2>Усі дані</h2>
+  <div class="card scroll"><b>Фінальні звіти</b><table id="t_rep"></table></div>
+  <div class="card scroll"><b>Щомісячні дані</b><table id="t_mon"></table></div>
+  <div class="card scroll"><b>Погашення боргу</b><table id="t_rp"></table></div>
+  <div class="card scroll"><b>Журнал змін (останні 50)</b><table id="t_log"></table></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const nf = new Intl.NumberFormat('uk-UA',{maximumFractionDigits:2});
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let DATA=null;
+
+// ---- helpers -------------------------------------------------------------------------------
+function say(text,err){const m=$('msg');m.textContent=text;m.className=err?'err':'ok';clearTimeout(say.t);if(!err)say.t=setTimeout(()=>m.className='',6000)}
+async function api(method,url,body){
+  const r=await fetch(url,{method,headers:{'Content-Type':'application/json','X-Admin':'1'},body:body?JSON.stringify(body):undefined});
+  let j=null; try{j=await r.json()}catch(e){}
+  if(!r.ok){
+    let d=j&&j.detail; if(Array.isArray(d)) d=d.map(x=>(x.loc||[]).slice(1).join('.')+': '+x.msg).join('; ');
+    throw new Error(d||('Помилка '+r.status));
+  }
+  return j;
+}
+
+// ---- report form ----------------------------------------------------------------------------
+const FIELDS=[ // id, label, type, step, required, kind
+ ['period_start','Початок періоду','date',null,1],['period_end','Кінець періоду','date',null,1],
+ ['days','Відпрацьовано днів','number','1',1],['cycles','Цикли (якщо вказано)','number','0.1',0],
+ ['revenue','Дохід кооперативу, грн','number','0.01',1],['prior_tax','Донарахований податок (повернення), грн','number','0.01',0],
+ ['opex_electricity','Витрати на електроенергію','number','0.01',1],['opex_personnel','Витрати на персонал','number','0.01',1],
+ ['opex_software','ПЗ, інтернет та РКО','number','0.01',1],['profit_tax','Податок на прибуток','number','0.01',0],
+ ['base','База для розрахунку виплат','number','0.01',1],['pool','Нараховано інвесторам (пул)','number','0.01',1],
+ ['debt_pool','у т.ч. борг УкрЕнерго (пул)','number','0.01',0],['mgmt','Винагорода Управляючої компанії','number','0.01',1],
+ ['nbu_rate','Курс НБУ зі звіту, грн/$','number','0.0001',1],['pay_date','Дата виплати','date',null,0],
+ ['reported_yield','Дохідність проєкту у звіті, % річних','number','0.01',0],
+ ['reported_investor_yield','Дохідність інвестора у звіті, % річних','number','0.01',0],
+ ['key','Ключ (авто, можна змінити)','text',null,0],['note','Примітка','text',null,0]];
+const PCT=new Set(['reported_yield','reported_investor_yield']);
+$('form').innerHTML=FIELDS.map(([id,l,t,s])=>`<label>${l}<input id="f_${id}" type="${t}" ${s?`step="${s}"`:''} ${t==='text'?'maxlength="500"':''}></label>`).join('');
+
+function collect(){
+  const o={}, missing=[];
+  for(const [id,,t,,req] of FIELDS){
+    let v=$('f_'+id).value.trim();
+    if(v===''){ if(req) missing.push(id); continue }
+    if(t==='number'){v=parseFloat(v); if(PCT.has(id)) v=v/100}
+    o[id]=v;
+  }
+  return {body:o,missing};
+}
+function fill(fields,uncertain){
+  FIELDS.forEach(([id])=>{$('f_'+id).classList.remove('uncertain')});
+  for(const [id,,t] of FIELDS){
+    let v=fields[id]; if(v===undefined||v===null){ if(!(id in fields)) continue; v='' }
+    if(PCT.has(id)&&v!=='') v=Math.round(v*10000)/100;
+    $('f_'+id).value=v;
+  }
+  const alias={worked_days:'days',rate_uah_per_usd:'nbu_rate',pool_ukrenergo_debt:'debt_pool',project_yield_percent:'reported_yield',investor_yield_percent:'reported_investor_yield'};
+  (uncertain||[]).forEach(n=>{const id=alias[n]||n.split(/[\/:]/)[0]; const el=$('f_'+id); if(el) el.classList.add('uncertain')});
+  FIELDS.forEach(([id,,,,req])=>{const el=$('f_'+id); if(req&&el.value==='') el.classList.add('uncertain')});
+  recheck();
+}
+let tmr=null;
+function recheck(){clearTimeout(tmr);tmr=setTimeout(doCheck,300)}
+async function doCheck(){
+  const {body,missing}=collect(), ul=$('checks');
+  updateExists(body);
+  if(missing.length){ul.innerHTML=`<li class="hint">Заповніть обов'язкові поля, щоб побачити перевірки.</li>`;return}
+  try{
+    const r=await api('POST','/api/admin/report/check',body);
+    ul.innerHTML=(r.overlaps.length?`<li class="bad">✗ Період перетинається зі звітом: ${esc(r.overlaps.join(', '))}</li>`:'')+
+      r.checks.map(c=>`<li class="${c.ok?'ok':'bad'}">${c.ok?'✓':'✗'} ${esc(c.name)} — ${esc(c.detail)}</li>`).join('');
+  }catch(e){ul.innerHTML=`<li class="bad">✗ ${esc(e.message)}</li>`}
+}
+function updateExists(body){
+  const key=body.key||autoKey(body); const hit=key&&DATA&&DATA.reports.find(r=>r.key===key);
+  $('exists').innerHTML=hit?`<span class="warn">Звіт «${esc(key)}» уже є${hit.source==='admin'?'':' (з початкових даних)'}: збереження перезапише його. Це змінить фіксовані періоди.</span>`:'';
+}
+function autoKey(b){
+  if(!b.period_start||!b.period_end) return '';
+  const [s,e]=[new Date(b.period_start),new Date(b.period_end)], p=n=>String(n).padStart(2,'0');
+  const sy=s.getUTCFullYear(), sm=s.getUTCMonth()+1, em=e.getUTCMonth()+1;
+  if(sy===e.getUTCFullYear()&&sm===em) return `${sy}-${p(sm)}`;
+  if(sy===e.getUTCFullYear()&&(sm-1)%3===0&&em===sm+2) return `${sy}-Q${(sm-1)/3+1}`;
+  return `${sy}-${p(sm)}-${p(em)}`;
+}
+FIELDS.forEach(([id])=>$('f_'+id).addEventListener('input',recheck));
+
+$('save').onclick=async()=>{
+  const {body,missing}=collect();
+  if(missing.length) return say('Не заповнено обов\'язкові поля: '+missing.join(', '),true);
+  try{const r=await api('POST','/api/admin/report',body); say((r.created?'Звіт додано: ':'Звіт оновлено: ')+r.key); await load(); doCheck()}
+  catch(e){say(e.message,true)}
+};
+$('clear').onclick=()=>{FIELDS.forEach(([id])=>{$('f_'+id).value='';$('f_'+id).classList.remove('uncertain')});$('checks').innerHTML='';$('exists').textContent=''};
+
+// ---- infographic -> Claude --------------------------------------------------------------------
+$('img').onchange=()=>{$('read').disabled=!($('img').files[0]&&DATA&&DATA.claude_enabled)};
+$('read').onclick=async()=>{
+  const f=$('img').files[0]; if(!f) return;
+  if(f.size>5*1024*1024) return say('Зображення більше 5 МБ',true);
+  $('read').disabled=true; $('read_hint').textContent='Розпізнаю… (до хвилини)';
+  try{
+    const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(f)});
+    const r=await api('POST','/api/admin/parse-image',{filename:f.name,media_type:f.type,data_base64:b64});
+    fill(r.fields,r.uncertain);
+    say('Форму заповнено з зображення'+(r.uncertain.length?'. Перевірте виділені поля.':'. Перевірте значення перед збереженням.'));
+  }catch(e){say(e.message,true)}
+  $('read_hint').textContent=''; $('read').disabled=false;
+};
+
+// ---- monthly rows ---------------------------------------------------------------------------------
+let MROWS=[];
+function renderM(){
+  const t=$('mrows');
+  if(!MROWS.length){t.innerHTML='';$('msave').style.display='none';return}
+  t.innerHTML='<table><tr><th>Місяць (1-ше число)</th><th>Днів</th><th>Циклів</th><th>Дохід після електроенергії, грн</th><th>Статус</th><th>Примітка</th><th></th></tr>'+
+   MROWS.map((r,i)=>`<tr><td><input type="date" data-i="${i}" data-k="month" value="${esc(r.month)}"></td>
+    <td><input type="number" data-i="${i}" data-k="days" value="${esc(r.days)}"></td>
+    <td><input type="number" step="0.1" data-i="${i}" data-k="cycles" value="${esc(r.cycles??'')}"></td>
+    <td><input type="number" step="0.01" data-i="${i}" data-k="net_uah" value="${esc(r.net_uah)}"></td>
+    <td><select data-i="${i}" data-k="status"><option value="preliminary" ${r.status==='preliminary'?'selected':''}>попередній</option><option value="reconciled" ${r.status==='reconciled'?'selected':''}>звірка</option></select></td>
+    <td><input type="text" data-i="${i}" data-k="note" value="${esc(r.note)}"></td>
+    <td><button class="danger" data-del="${i}">×</button></td></tr>`).join('')+'</table>';
+  $('msave').style.display='';
+  t.querySelectorAll('[data-k]').forEach(el=>el.oninput=()=>{const r=MROWS[el.dataset.i];let v=el.value; if(['days','net_uah','cycles'].includes(el.dataset.k)) v=v===''?null:parseFloat(v); r[el.dataset.k]=v});
+  t.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{MROWS.splice(b.dataset.del,1);renderM()});
+}
+$('parse').onclick=async()=>{
+  try{const r=await api('POST','/api/admin/parse-chat',{text:$('chat').value});
+    MROWS=r.rows; renderM();
+    say(r.rows.length?`Розібрано місяців: ${r.rows.length}. Перевірте і збережіть.`+(r.problems.length?' Проблеми: '+r.problems.join('; '):''):'Нічого не розібрано. '+r.problems.join('; '),!r.rows.length);
+  }catch(e){say(e.message,true)}
+};
+$('addrow').onclick=()=>{MROWS.push({month:'',days:30,cycles:null,net_uah:'',status:'preliminary',note:''});renderM()};
+$('msave').onclick=async()=>{
+  try{const r=await api('POST','/api/admin/monthly',MROWS.map(x=>({...x,cycles:x.cycles===''?null:x.cycles})));
+    say('Збережено місяців: '+r.saved.length); MROWS=[]; renderM(); $('chat').value=''; await load()}
+  catch(e){say(e.message,true)}
+};
+
+// ---- repayments ---------------------------------------------------------------------------------------
+$('rsave').onclick=async()=>{
+  try{await api('POST','/api/admin/repayment',{day:$('r_day').value,pool_uah:parseFloat($('r_sum').value),note:$('r_note').value});
+    say('Погашення збережено'); $('r_sum').value='';$('r_note').value=''; await load()}
+  catch(e){say(e.message,true)}
+};
+
+// ---- tables -------------------------------------------------------------------------------------------------
+async function load(){
+  DATA=await api('GET','/api/admin/data');
+  $('read_hint').textContent=DATA.claude_enabled?'':'Розпізнавання вимкнено: не задано ANTHROPIC_API_KEY. Введіть значення вручну.';
+  $('img').onchange();
+  const src=s=>s==='admin'?'адмінка':'початкові';
+  $('t_rep').innerHTML='<tr><th>Ключ</th><th>Період</th><th>Днів</th><th>Дохід</th><th>База</th><th>Пул</th><th>Борг</th><th>Курс НБУ</th><th>Виплата</th><th>Джерело</th><th>Перевірки</th><th></th></tr>'+
+   DATA.reports.map(r=>{const bad=(DATA.checks[r.key]||[]).filter(c=>!c.ok).length;
+     return `<tr><td>${esc(r.key)}</td><td>${esc(r.period_start)} – ${esc(r.period_end)}</td><td>${r.days}</td><td>${nf.format(r.revenue)}</td><td>${nf.format(r.base)}</td><td>${nf.format(r.pool)}</td><td>${nf.format(r.debt_pool)}</td><td>${r.nbu_rate}</td><td>${esc(r.pay_date||'—')}</td><td>${src(r.source)}</td><td class="${bad?'warn':'ok'}">${bad?bad+' зауваж.':'✓'}</td>
+     <td><button data-edit="${esc(r.key)}">Редагувати</button> <button class="danger" data-delrep="${esc(r.key)}">Видалити</button></td></tr>`}).join('');
+  $('t_mon').innerHTML='<tr><th>Місяць</th><th>Днів</th><th>Циклів</th><th>Дохід після ел., грн</th><th>Статус</th><th>Джерело</th><th></th></tr>'+
+   DATA.monthly.map(m=>`<tr><td>${esc(m.month)}</td><td>${m.days}</td><td>${m.cycles??'—'}</td><td>${nf.format(m.net_uah)}</td><td>${m.status==='reconciled'?'звірка':'попередній'}</td><td>${src(m.source)}</td>
+     <td><button data-editm="${esc(m.month)}">Редагувати</button> <button class="danger" data-delm="${esc(m.month)}">Видалити</button></td></tr>`).join('');
+  $('t_rp').innerHTML='<tr><th>Дата</th><th>Сума, грн</th><th>Примітка</th><th></th></tr>'+
+   (DATA.repayments.length?DATA.repayments.map(x=>`<tr><td>${esc(x.day)}</td><td>${nf.format(x.pool_uah)}</td><td>${esc(x.note)}</td><td><button class="danger" data-delr="${esc(x.day)}">Видалити</button></td></tr>`).join(''):'<tr><td colspan="4" class="hint">Погашень ще не було</td></tr>');
+  $('t_log').innerHTML='<tr><th>Час (UTC)</th><th>Дія</th><th>Що</th><th>Ключ</th></tr>'+
+   (DATA.audit.length?DATA.audit.map(a=>`<tr><td>${esc(a.ts.slice(0,19).replace('T',' '))}</td><td>${esc(a.action)}</td><td>${esc(a.entity)}</td><td>${esc(a.key)}</td></tr>`).join(''):'<tr><td colspan="4" class="hint">Змін ще не було</td></tr>');
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const r=DATA.reports.find(x=>x.key===b.dataset.edit);fill(r,[]);window.scrollTo({top:0,behavior:'smooth'})});
+  document.querySelectorAll('[data-editm]').forEach(b=>b.onclick=()=>{MROWS=[DATA.monthly.find(x=>x.month===b.dataset.editm)];renderM();$('mrows').scrollIntoView({behavior:'smooth'})});
+  const del=(attr,url,what)=>document.querySelectorAll(`[${attr}]`).forEach(b=>b.onclick=async()=>{
+    const k=b.getAttribute(attr); if(!confirm(`Видалити ${what} «${k}»? Дашборд перерахується.`)) return;
+    try{await api('DELETE',url+encodeURIComponent(k)); say('Видалено: '+k); await load()}catch(e){say(e.message,true)}});
+  del('data-delrep','/api/admin/report/','звіт'); del('data-delm','/api/admin/monthly/','місяць'); del('data-delr','/api/admin/repayment/','погашення');
+}
+load().catch(e=>say(e.message,true));
+</script>
+</body>
+</html>

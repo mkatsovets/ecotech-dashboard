@@ -16,6 +16,11 @@ Conversation with the user in Ukrainian; code, comments and commit messages in E
   rewritten silently: new reports replace forecast values, history stays.
 - Run `pytest` after any change to `app/waterfall.py` or `app/model.py`; the three company
   reports must still be reproduced.
-- The seed file is upserted on every start (`INSERT OR REPLACE`), so DB edits to seeded keys
-  are overwritten — change this before the admin side lets people edit reports.
+- The seed file is applied on every start, but only to rows that still have `source = 'seed'`:
+  rows edited in the admin (`source = 'admin'`) are never overwritten and rows deleted there
+  (tombstones) never come back. To correct a seeded value after the admin touched it, edit it
+  in the admin, not in the seed file.
+- Claude only PROPOSES values from images (`app/ingest.py`); nothing is saved without the
+  operator's confirmation in the admin form. Keep it that way: the September Excel typo showed
+  how easily a wrong number gets in.
 - Python 3.11+; stdlib + FastAPI + PyYAML only. Keep the model pure (no I/O in `model.py`).

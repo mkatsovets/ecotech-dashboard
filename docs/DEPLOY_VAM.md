@@ -27,8 +27,12 @@ Image: built by GitHub Actions on every push to `main`, published to Docker Hub.
    image `<DOCKERHUB_USERNAME>/ecotech-dashboard`, tag `latest`.
 2. **Volumes:** mount a volume on `/data` (this is where `ecotech.db` is stored; without it the
    database is lost on every redeploy).
-3. **Variables:** none required (`PORT=80` is the default in the image). Later, for the admin side:
-   `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`. Never put them in the image or the repository.
+3. **Variables** (container layer settings -> Variables; never put them in the image or the repository):
+   - `ADMIN_PASSWORD`: password of the admin page `/admin` (user `admin`). Without it the admin
+     side is disabled (503). Use a long random password.
+   - `ANTHROPIC_API_KEY`: key for reading infographics with Claude. Optional: without it the
+     admin form works, only the "recognise image" button is off.
+   - `PORT=80` is the default in the image.
 4. **Resources:** 1 node, ~256 MB RAM / 1 cloudlet range is enough.
 5. **Public access:** the container listens on port 80, which is where the platform's shared load
    balancer sends HTTP, so the environment URL works as is. For a custom domain / HTTPS use the
@@ -61,9 +65,19 @@ container (tag `latest`). The volume with the database is kept.
 Back up the `/data` volume (V/AM backup) or copy `/data/ecotech.db` periodically.
 The database holds the FX cache and, once the admin side exists, every report entered through it.
 
+## Admin side
+
+Open `https://<your-env>/admin`, log in as `admin` with `ADMIN_PASSWORD`. There you can:
+add or edit a final report (type it, or upload the infographic and let Claude fill the form, then
+check and save), paste the company's monthly chat messages, record UkrEnergo debt repayments,
+and see the change log. Uploaded infographics are kept in `/data/uploads` as an audit trail.
+Always use HTTPS for `/admin` (the password travels with every request).
+
+Rows changed in the admin are never overwritten by the seed file, and rows deleted there do
+not come back after a restart. The seed (`data/seed/eti1.yaml`, inside the image) only fills
+what the admin has not touched.
+
 ## Known limits
 
 - SQLite means exactly one running instance (do not scale horizontally).
-- Until the admin side is built, reports come only from `data/seed/eti1.yaml` (inside the image),
-  which is re-applied on each start.
 - The page loads Plotly from the jsDelivr CDN; the browsers of the viewers need internet access.

@@ -31,7 +31,15 @@ py -m venv .venv
 - `app/returns.py` — XIRR from the investment start date (editable) and run-rate
   annual yield per payout date.
 
-## Not done yet
+## Admin side (`/admin`)
 
-Admin side (add a report by form / paste a chat message / upload an infographic with
-Claude vision + confirmation), Docker image and deployment to V/AM.
+HTTP Basic auth (`admin` / `ADMIN_PASSWORD`; disabled when the variable is not set).
+- final report: form with live consistency checks, or an infographic read by Claude
+  (`ANTHROPIC_API_KEY`, model `claude-opus-5-5`, structured output); the result only fills the
+  form, the operator confirms;
+- monthly chat messages: paste the text, the parser proposes rows (`app/ingest.py`);
+- UkrEnergo debt repayments;
+- every change goes to the audit log; seed rows edited or deleted in the admin are not
+  overwritten or resurrected by the seed file.
+
+Deployment to V/AM: see `docs/DEPLOY_VAM.md`.

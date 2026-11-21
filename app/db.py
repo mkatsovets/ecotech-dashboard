@@ -1,8 +1,14 @@
-"""SQLite storage. Every table carries project_id so more projects can be added."""
+"""SQLite storage. Every table carries project_id so more projects can be added.
+
+Rows come from two places: the seed file (`source = 'seed'`) and the admin page
+(`source = 'admin'`). The seed is re-applied on every start, but it never overwrites a row
+edited through the admin page and never resurrects a row the admin deleted (tombstones).
+"""
 from __future__ import annotations
 
+import json
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -28,6 +34,12 @@ CREATE TABLE IF NOT EXISTS repayments (
   PRIMARY KEY (project_id, day));
 CREATE TABLE IF NOT EXISTS fx_rates (
   day TEXT PRIMARY KEY, cash_buy REAL, cash_sell REAL, card_buy REAL, card_sell REAL, fetched_at TEXT);
+CREATE TABLE IF NOT EXISTS tombstones (
+  project_id TEXT NOT NULL, entity TEXT NOT NULL, key TEXT NOT NULL,
+  PRIMARY KEY (project_id, entity, key));
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, action TEXT NOT NULL, entity TEXT NOT NULL,
+  project_id TEXT NOT NULL, key TEXT NOT NULL, before TEXT, after TEXT);
 """
 
 REPORT_COLS = ["key", "kind", "period_start", "period_end", "days", "cycles", "revenue", "prior_tax",
@@ -35,6 +47,12 @@ REPORT_COLS = ["key", "kind", "period_start", "period_end", "days", "cycles", "r
                "debt_pool", "mgmt", "nbu_rate", "pay_date", "reported_yield",
                "reported_investor_yield", "note"]
 MONTHLY_COLS = ["month", "days", "cycles", "net_uah", "status", "note"]
+# entity -> (table, key column, columns)
+ENTITIES = {
+    "report": ("reports", "key", REPORT_COLS),
+    "monthly": ("monthly", "month", MONTHLY_COLS),
+    "repayment": ("repayments", "day", ["day", "pool_uah", "note"]),
+}
 
 
 def _iso(v):
@@ -46,21 +64,67 @@ class Repo:
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
-
-    # --- reports / monthly -------------------------------------------------
-    def upsert_report(self, project_id: str, r: dict) -> None:
-        vals = [_iso(r.get(c)) if c != "note" else r.get(c, "") for c in REPORT_COLS]
-        cols = ",".join(["project_id"] + REPORT_COLS)
-        ph = ",".join("?" * (len(REPORT_COLS) + 1))
-        self.conn.execute(f"INSERT OR REPLACE INTO reports ({cols}) VALUES ({ph})", [project_id] + vals)
+        for table in ("reports", "monthly", "repayments"):    # migration for databases made before `source`
+            cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if "source" not in cols:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN source TEXT NOT NULL DEFAULT 'seed'")
         self.conn.commit()
 
-    def upsert_monthly(self, project_id: str, m: dict) -> None:
-        vals = [_iso(m.get(c)) if c != "note" else m.get(c, "") for c in MONTHLY_COLS]
-        cols = ",".join(["project_id"] + MONTHLY_COLS)
-        ph = ",".join("?" * (len(MONTHLY_COLS) + 1))
-        self.conn.execute(f"INSERT OR REPLACE INTO monthly ({cols}) VALUES ({ph})", [project_id] + vals)
+    # --- generic row helpers --------------------------------------------------------------
+    def get_row(self, entity: str, project_id: str, key: str) -> dict | None:
+        table, kcol, cols = ENTITIES[entity]
+        r = self.conn.execute(f"SELECT {','.join(cols)}, source FROM {table} WHERE project_id=? AND {kcol}=?",
+                              (project_id, key)).fetchone()
+        return dict(r) if r else None
+
+    def list_rows(self, entity: str, project_id: str) -> list[dict]:
+        table, kcol, cols = ENTITIES[entity]
+        rows = self.conn.execute(f"SELECT {','.join(cols)}, source FROM {table} WHERE project_id=? ORDER BY {kcol}",
+                                 (project_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def put_row(self, entity: str, project_id: str, row: dict, source: str) -> None:
+        table, kcol, cols = ENTITIES[entity]
+        vals = [_iso(row.get(c)) if c != "note" else row.get(c, "") for c in cols]
+        names = ",".join(["project_id"] + cols + ["source"])
+        ph = ",".join("?" * (len(cols) + 2))
+        self.conn.execute(f"INSERT OR REPLACE INTO {table} ({names}) VALUES ({ph})", [project_id] + vals + [source])
+        self.conn.execute("DELETE FROM tombstones WHERE project_id=? AND entity=? AND key=?",
+                          (project_id, entity, str(_iso(row[kcol]))))
         self.conn.commit()
+
+    def delete_row(self, entity: str, project_id: str, key: str, tombstone: bool = True) -> bool:
+        table, kcol, _ = ENTITIES[entity]
+        cur = self.conn.execute(f"DELETE FROM {table} WHERE project_id=? AND {kcol}=?", (project_id, key))
+        if tombstone:   # keep the seed from bringing the row back on the next start
+            self.conn.execute("INSERT OR IGNORE INTO tombstones (project_id, entity, key) VALUES (?,?,?)",
+                              (project_id, entity, key))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def is_tombstoned(self, entity: str, project_id: str, key: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM tombstones WHERE project_id=? AND entity=? AND key=?",
+                                 (project_id, entity, key)).fetchone() is not None
+
+    def audit(self, action: str, entity: str, project_id: str, key: str, before: dict | None, after: dict | None):
+        self.conn.execute(
+            "INSERT INTO audit_log (ts, action, entity, project_id, key, before, after) VALUES (?,?,?,?,?,?,?)",
+            (datetime.now(timezone.utc).isoformat(), action, entity, project_id, key,
+             json.dumps(before, ensure_ascii=False, default=str) if before else None,
+             json.dumps(after, ensure_ascii=False, default=str) if after else None))
+        self.conn.commit()
+
+    def audit_tail(self, project_id: str, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute("SELECT ts, action, entity, key, before, after FROM audit_log "
+                                 "WHERE project_id=? ORDER BY id DESC LIMIT ?", (project_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- model inputs -----------------------------------------------------------------------
+    def upsert_report(self, project_id: str, r: dict, source: str = "seed") -> None:
+        self.put_row("report", project_id, r, source)
+
+    def upsert_monthly(self, project_id: str, m: dict, source: str = "seed") -> None:
+        self.put_row("monthly", project_id, m, source)
 
     def reports(self, project_id: str) -> list[Report]:
         rows = self.conn.execute("SELECT * FROM reports WHERE project_id=? ORDER BY period_start",
@@ -105,13 +169,22 @@ def load_config(path: str | Path) -> dict:
 
 
 def load_seed(repo: Repo, project_id: str, path: str | Path) -> None:
-    """Idempotent upsert of the seed file (reports, monthly messages, repayments)."""
+    """Idempotent seed: updates rows that still belong to the seed, leaves admin-edited rows alone
+    and does not bring back rows the admin deleted."""
     seed = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+    def apply(entity: str, row: dict) -> None:
+        key = str(_iso(row[ENTITIES[entity][1]]))
+        if repo.is_tombstoned(entity, project_id, key):
+            return
+        existing = repo.get_row(entity, project_id, key)
+        if existing is not None and existing["source"] != "seed":
+            return
+        repo.put_row(entity, project_id, row, "seed")
+
     for r in seed.get("reports", []):
-        repo.upsert_report(project_id, r)
+        apply("report", r)
     for m in seed.get("monthly", []):
-        repo.upsert_monthly(project_id, m)
+        apply("monthly", m)
     for rp in seed.get("repayments", []) or []:
-        repo.conn.execute("INSERT OR REPLACE INTO repayments (project_id, day, pool_uah, note) VALUES (?,?,?,?)",
-                          (project_id, _iso(rp["day"]), rp["pool_uah"], rp.get("note", "")))
-    repo.conn.commit()
+        apply("repayment", rp)

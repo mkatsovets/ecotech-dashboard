@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
 
+from .admin import make_router as make_admin_router
 from .db import Repo, load_config, load_seed
 from .fx import FxService
 from .service import build_dashboard
@@ -22,6 +23,7 @@ repo = Repo(DB_PATH)
 load_seed(repo, cfg["id"], ROOT / "data" / "seed" / f"{PROJECT}.yaml")
 
 app = FastAPI(title="Ecotech Invest dashboard")
+app.include_router(make_admin_router(repo, cfg, DB_PATH.parent / "uploads"))
 
 
 @app.get("/api/dashboard")
