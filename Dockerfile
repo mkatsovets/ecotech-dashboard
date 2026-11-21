@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY config ./config
 COPY data/seed ./data/seed
+COPY start.sh ./start.sh
+RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
 
 # /data is the persistent volume (SQLite lives there). The container runs as root on purpose:
 # platform-mounted volumes are root-owned, and a non-root user could not write the database.
@@ -27,5 +29,5 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','80'), timeout=4)"
 
-# Behind the platform load balancer: trust X-Forwarded-* headers.
-CMD ["sh", "-c", "exec uvicorn app.api:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]
+# Behind the platform load balancer: start.sh trusts X-Forwarded-* headers.
+CMD ["/app/start.sh"]

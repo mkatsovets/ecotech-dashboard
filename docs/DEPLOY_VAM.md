@@ -37,6 +37,11 @@ Image: built by GitHub Actions on every push to `main`, published to Docker Hub.
 
 ### Troubleshooting
 
+- *502 and `ps aux | grep uvicorn` shows nothing*: the process did not start. The image starts via
+  `/app/start.sh` (not `sh -c "..."`, whose quoting the platform can break). Check `run.log` /
+  `launcher.log` in the container log viewer, and run `cd /app && python -m uvicorn app.api:app --host 0.0.0.0 --port 80`
+  in Web SSH to see the actual error.
+
 - *502 "The server is not listening to the :80 port on its backend"*: the app listens on another
   port. Make sure the container variable `PORT` is `80` (older images had `8080`; edit the variable
   and restart the container) and look at the container log.
