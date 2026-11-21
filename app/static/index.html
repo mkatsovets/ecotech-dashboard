@@ -39,6 +39,7 @@ td.est{color:var(--ink2);font-style:italic}
 #t_q td:first-child{white-space:normal;min-width:260px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:860px){.grid2{grid-template-columns:1fr}}
 .chart{height:320px}
+.hint{font-size:12.5px;color:var(--ink2);min-height:54px;margin-bottom:6px;line-height:1.4}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th:first-child,td:first-child{text-align:left} th{color:var(--muted);font-weight:600;font-size:12px}
@@ -71,8 +72,8 @@ details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:10px 0}
 
   <h2>Динаміка по місяцях</h2>
   <div class="grid2">
-    <div class="card"><div class="chart" id="c_net"></div></div>
-    <div class="card"><div class="chart" id="c_cyc"></div></div>
+    <div class="card"><div class="hint" id="h_net"></div><div class="chart" id="c_net"></div></div>
+    <div class="card"><div class="hint" id="h_cyc"></div><div class="chart" id="c_cyc"></div></div>
   </div>
 
   <p class="note" id="net_note"></p>
@@ -162,41 +163,60 @@ function layout(extra){
   return Object.assign({paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
     font:{color:css('--ink2'),size:12},margin:{l:62,r:12,t:34,b:42},
     xaxis:{gridcolor:css('--line'),zeroline:false},yaxis:{gridcolor:css('--line'),zeroline:false},
-    legend:{orientation:'h',y:-0.2},hovermode:'x unified'},extra||{});
+    legend:{orientation:'h',y:-0.2},hovermode:'x unified',
+    hoverlabel:{bgcolor:css('--card'),bordercolor:css('--line'),font:{color:css('--ink'),size:12}}},extra||{});
 }
 const cfg={displayModeBar:false,responsive:true};
+// Writes the text for the hovered month into the line above chart `id` (elements #h_<id>, #c_<id>).
+function hint(id,fn,idle){
+  const el=$('h_'+id), gd=$('c_'+id);
+  gd._hint={fn,idle}; el.textContent=idle;
+  if(gd._wired) return;
+  gd._wired=true;
+  gd.on('plotly_hover',e=>{el.textContent=gd._hint.fn(e.points[0].pointIndex)});
+  gd.on('plotly_unhover',()=>{el.textContent=gd._hint.idle});
+}
 const fill=(status)=>({final:css('--accent'),reconciled:css('--accent2'),preliminary:css('--accent2'),forecast:css('--accent2')})[status];
 
 function charts(){
   const M=D.months, x=M.map(m=>mlabel(m.month));
   // 1. monthly net revenue after electricity, mln UAH
-  // The only figure available for every month is "income after electricity purchases":
-  //  final months     - from the final period report (period split by cycles) -> bars, dark
-  //  preliminary      - the chat figure divided by the calibration factor     -> bars, light
-  //  forecast         - cycles x net per cycle                                -> hatched bars + range
-  //  dots             - exactly what the company published in the chat
-  const groups=[['final','Фінальний звіт (період розподілено по циклах)'],['preliminary','Попередні дані з поправкою'],['forecast','Прогноз']];
+  // Bars: approximate TOTAL income of the month (before electricity purchases):
+  //   final months - revenue from the final period report (period split by cycles)
+  //   preliminary / forecast - estimate (see note below the chart)
+  // Dots: the single figure the company publishes every month = income AFTER electricity purchases.
+  // Names are kept short on purpose: in the unified tooltip they are printed next to each value.
+  const groups=[['final','Фінал'],['preliminary','Попередні'],['forecast','Прогноз']];
   const bars=groups.map(([st,name])=>{
     const sel=M.map(m=>(st==='preliminary'?['preliminary','reconciled'].includes(m.status):m.status===st));
-    const t={type:'bar',name,x,y:M.map((m,i)=>sel[i]?m.net/1e6:null),marker:{color:fill(st)},
-      customdata:M.map(m=>[m.raw_prelim!=null?m.raw_prelim/1e6:null]),
-      hovertemplate:'%{y:.2f} млн грн (оцінка на спільній основі)'};
+    const t={type:'bar',name,x,y:M.map((m,i)=>sel[i]?m.gross/1e6:null),marker:{color:fill(st)},hoverinfo:'none'};
     if(st==='forecast'){
       t.marker.pattern={shape:'/',fgcolor:css('--accent'),bgcolor:'rgba(0,0,0,0)',size:6};
       t.marker.line={color:css('--accent'),width:1};
       t.error_y={type:'data',symmetric:false,visible:true,color:css('--muted'),thickness:1.2,width:4,
-        array:M.map(m=>m.net_high!=null?(m.net_high-m.net)/1e6:0),arrayminus:M.map(m=>m.net_low!=null?(m.net-m.net_low)/1e6:0)};
+        array:M.map(m=>m.gross_high!=null?(m.gross_high-m.gross)/1e6:0),arrayminus:M.map(m=>m.gross_low!=null?(m.gross-m.gross_low)/1e6:0)};
     }
     return t});
-  const dots={type:'scatter',mode:'markers',name:'Опубліковано в чаті',x,y:M.map(m=>m.raw_prelim!=null?m.raw_prelim/1e6:null),
-    marker:{symbol:'circle',size:9,color:css('--ink'),line:{color:css('--card'),width:2}},hovertemplate:'%{y:.2f} млн грн (як опубліковано)'};
-  Plotly.react('c_net',[...bars,dots],layout({title:{text:'Дохід за місяць після закупівлі електроенергії, млн грн',font:{size:13}},barmode:'overlay',yaxis:{gridcolor:css('--line'),rangemode:'tozero'},legend:{orientation:'h',y:-0.32}}),cfg);
-  $('net_note').textContent='Щомісячні повідомлення компанії містять одне число: дохід після закупівлі електроенергії, на момент публікації без остаточної звірки з УкрЕнерго. Повний дохід і витрати по статтях є лише у фінальних звітах за період (таблиці нижче). Стовпці — оцінка на спільній основі: фінальні місяці зі звіту, попередні — число з чату з поправкою ×'+(1/D.model.calibration).toFixed(2).replace('.',',')+' (так попередні дані відрізнялись від фінальних), прогноз — тренд. Точки — що саме опубліковано.';
+  const dots={type:'scatter',mode:'markers',name:'Опубліковано',x,y:M.map(m=>m.raw_prelim!=null?m.raw_prelim/1e6:null),
+    marker:{symbol:'circle',size:9,color:css('--ink'),line:{color:css('--card'),width:2}},hoverinfo:'none'};
+  Plotly.react('c_net',[...bars,dots],layout({title:{text:'Загальний дохід за місяць, млн грн',font:{size:13}},barmode:'overlay',
+    hovermode:'x',yaxis:{gridcolor:css('--line'),rangemode:'tozero'},legend:{orientation:'h',y:-0.25}}),cfg);
+  // The hint is written into a fixed line above the chart (never covers the bars, always readable).
+  const mln=v=>(v/1e6).toFixed(2).replace('.',',')+' млн';
+  const SRC={final:'за фінальним звітом',reconciled:'за попередніми даними',preliminary:'за попередніми даними',forecast:'прогноз'};
+  hint('net',i=>{const m=M[i];
+    return `${mlabel(m.month)}: ≈ ${mln(m.gross)} — загальний дохід (${SRC[m.status]}); `+
+      (m.raw_prelim!=null?`${mln(m.raw_prelim)} — опубліковано, за вирахуванням вартості електроенергії`:'у чаті цей місяць ще не опубліковано');},
+    'Наведіть курсор на місяць: перше значення — приблизний загальний дохід, друге — за вирахуванням вартості електроенергії');
+  $('net_note').textContent='Стовпці — приблизний загальний дохід до вирахування вартості електроенергії: для фінальних місяців зі звіту (період розподілено по місяцях пропорційно циклам), для попередніх і прогнозних — оцінка (число з чату з поправкою ×'+(1/D.model.calibration).toFixed(2).replace('.',',')+' плюс середня вартість електроенергії на цикл). Точки — єдине число, яке компанія публікує щомісяця: дохід за вирахуванням вартості електроенергії, на момент публікації без остаточної звірки.';
   // 2. cycles per month and net per cycle (two charts' worth of info on separate axes would be dual-axis -> use two traces rows)
   const cy=M.map(m=>m.cycles);
   Plotly.react('c_cyc',[
-    {type:'bar',name:'Цикли',x,y:cy,marker:{color:M.map(m=>m.status==='forecast'?css('--accent2'):css('--accent'))},hovertemplate:'%{y:.1f} циклів'}],
-    layout({title:{text:'Кількість циклів за місяць',font:{size:13}},showlegend:false}),cfg);
+    {type:'bar',name:'Цикли',x,y:cy,marker:{color:M.map(m=>m.status==='forecast'?css('--accent2'):css('--accent'))},hoverinfo:'none'}],
+    layout({title:{text:'Кількість циклів за місяць',font:{size:13}},showlegend:false,hovermode:'x'}),cfg);
+  hint('cyc',i=>{const m=M[i];
+    return `${mlabel(m.month)}: `+(m.cycles!=null?`${m.cycles.toFixed(1).replace('.',',')} циклів${m.status==='forecast'?' (прогноз)':''}`:'немає даних про цикли');},
+    'Наведіть курсор на місяць');
   // 3. quarterly investor payout $
   const Q=D.quarters, qx=Q.map(q=>q.label), lock=Q.map(q=>q.status==='locked');
   // two values per quarter: actual cash payout (without UkrEnergo debt) and accrued (with the debt share)
