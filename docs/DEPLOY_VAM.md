@@ -35,8 +35,16 @@ Image: built by GitHub Actions on every push to `main`, published to Docker Hub.
    - an NGINX **load balancer** layer in front, proxying to container port 8080, plus the
      Let's Encrypt add-on for HTTPS and a custom domain;
    - the platform's shared balancer / an **endpoint** (or public IP) mapped to port 8080.
-   The container is started as a non-root user, so it cannot bind ports below 1024.
+   The container runs as root, so `PORT=80` also works if the platform routes HTTP to port 80.
 6. Open the environment URL: the page must load and `/healthz` must return `{"status":"ok"}`.
+
+### Troubleshooting
+
+- *"The image is based on unsupported OS template for deploying it as a custom container"*:
+  the base image must be built on an OS version the platform supports. The Dockerfile pins
+  `python:3.12-slim-bookworm` (Debian 12) for this reason. If it is still refused, try
+  `python:3.12-alpine` or deploy the same image on a **Docker Engine CE** node
+  (the alternative the platform itself suggests).
 
 ## 3. Updating
 
