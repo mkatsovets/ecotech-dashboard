@@ -101,6 +101,20 @@ def test_gross_income_and_quarter_amounts_reconcile(repo, cfg):
     assert q["Q3 2026"]["software"] == pytest.approx(13100.00 + 6666.66)
 
 
+def test_forecast_costs_follow_the_latest_full_quarter(repo, cfg):
+    """Personnel and software/internet/bank costs of Q4 must look like the full Q3 (the same days
+    and the same split), not like an average that includes the short start-up quarter."""
+    res = run_all(repo.reports(cfg["id"]), repo.prelims(cfg["id"]), cfg, TODAY)
+    q = {r["label"]: r for r in res["quarters"]}
+    q3, q4, q1 = q["Q3 2026"], q["Q4 2026"], q["Q1 2027"]
+    assert q3["days"] == q4["days"] == 92
+    assert q4["personnel"] == pytest.approx(q3["personnel"], rel=1e-6)
+    assert q4["software"] == pytest.approx(q3["software"], rel=1e-6)
+    assert q1["other_opex"] / q1["days"] == pytest.approx(q3["other_opex"] / q3["days"], rel=1e-6)
+    a = res["assumptions"]["base"]
+    assert a.personnel_share == pytest.approx(325288.22 / 345054.88, rel=1e-4)   # Q3 split, ~94%
+
+
 def test_forecast_is_replaced_by_actuals(repo, cfg):
     """Adding the final September report must lock Q3 and keep the forecast for Q4 only."""
     reports = repo.reports(cfg["id"])

@@ -134,15 +134,30 @@ def quarter_end(year: int, q: int) -> date:
     return date(year, m, calendar.monthrange(year, m)[1])
 
 
-def other_opex_per_day(reports: list[Report]) -> float:
-    days = sum(r.days for r in reports)
-    return sum(r.other_opex for r in reports) / days if days else 0.0
+def _recent_reports(reports: list[Report], n_months: int) -> list[Report]:
+    """The most recent final reports that together cover at least `n_months` months, so the cost
+    run-rate reflects the latest period (not the start-up quarter) like the rest of the forecast."""
+    out, months = [], 0
+    for r in sorted(reports, key=lambda r: r.period_end, reverse=True):
+        out.append(r)
+        months += len(month_overlaps(r.period_start, r.period_end))
+        if months >= n_months:
+            break
+    return out
 
 
-def personnel_share(reports: list[Report]) -> float:
-    """Personnel's share of (personnel + software/internet/bank) costs, from final reports."""
-    total = sum(r.other_opex for r in reports)
-    return sum(r.opex_personnel for r in reports) / total if total else 0.5
+def other_opex_per_day(reports: list[Report], n_months: int = 3) -> float:
+    """Personnel + software/internet/bank costs per day over the latest `n_months` months."""
+    rs = _recent_reports(reports, n_months)
+    days = sum(r.days for r in rs)
+    return sum(r.other_opex for r in rs) / days if days else 0.0
+
+
+def personnel_share(reports: list[Report], n_months: int = 3) -> float:
+    """Personnel's share of (personnel + software/internet/bank) costs over the same window."""
+    rs = _recent_reports(reports, n_months)
+    total = sum(r.other_opex for r in rs)
+    return sum(r.opex_personnel for r in rs) / total if total else 0.5
 
 
 def electricity_per_cycle(reports: list[Report]) -> float:
@@ -177,7 +192,8 @@ def calibration(reports: list[Report], prelims: list[Prelim]) -> float:
 # --- months ----------------------------------------------------------------------------
 
 def build_months(reports: list[Report], prelims: list[Prelim], k: float,
-                 elec_per_cycle: float = 0.0, pers_share: float = 0.5) -> list[MonthRow]:
+                 elec_per_cycle: float = 0.0, pers_share: float = 0.5,
+                 n_months: int = 3) -> list[MonthRow]:
     pm = {p.month: p for p in prelims}
     rows: dict[date, MonthRow] = {}
     for r in reports:
@@ -198,7 +214,7 @@ def build_months(reports: list[Report], prelims: list[Prelim], k: float,
                 pool=r.pool * f, debt=r.debt_pool * f, mgmt=r.mgmt * f,
                 fx=r.nbu_rate, pay_date=r.pay_date, report_key=r.key,
                 raw_prelim=pm[m].net_uah if m in pm else None)
-    opd = other_opex_per_day(reports)
+    opd = other_opex_per_day(reports, n_months)
     for p in prelims:
         if p.month not in rows:
             rows[p.month] = MonthRow(
@@ -211,17 +227,18 @@ def build_months(reports: list[Report], prelims: list[Prelim], k: float,
 
 def derive_assumptions(months: list[MonthRow], reports: list[Report], fc: dict) -> dict[str, Assumptions]:
     """base / low / high assumptions from the last N months that have cycles and revenue."""
+    n_months = int(fc.get("last_n_months", 3))
     hist = [m for m in months if m.cycles and m.cycles > 0 and m.days > 0 and m.net > 0]
-    hist = hist[-int(fc.get("last_n_months", 3)):]
+    hist = hist[-n_months:]
     if not hist or not reports:
         return {}
     cpd = [m.cycles / m.days for m in hist]
     npc = [m.net / m.cycles for m in hist]
     latest = max(reports, key=lambda r: r.period_end)
     fx = fc.get("fx_uah_per_usd") or latest.nbu_rate
-    opd = other_opex_per_day(reports)
+    opd = other_opex_per_day(reports, n_months)
     epc = electricity_per_cycle(reports)
-    ps = personnel_share(reports)
+    ps = personnel_share(reports, n_months)
     return {
         "base": Assumptions(mean(cpd), mean(npc), opd, fx, epc, ps),
         "low": Assumptions(min(cpd), min(npc), opd, fx, epc, ps),
@@ -304,7 +321,9 @@ def run_all(reports: list[Report], prelims: list[Prelim], cfg: dict, today: date
     capital = float(cfg["capital_usd"])
     tiers = tiers_from_config(cfg["tiers"])
     k = fc.get("calibration") or calibration(reports, prelims)
-    actual = build_months(reports, prelims, k, electricity_per_cycle(reports), personnel_share(reports))
+    n_months = int(fc.get("last_n_months", 3))
+    actual = build_months(reports, prelims, k, electricity_per_cycle(reports),
+                          personnel_share(reports, n_months), n_months)
     assumptions = derive_assumptions(actual, reports, fc)
 
     qy, qq = quarter_key(today)
