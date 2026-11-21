@@ -260,8 +260,6 @@ function charts(){
     ly('Проєкт (звіт компанії, курс НБУ)',Q.map(q=>q.annual_yield*100),css('--proj'),'solid'),
     ly('Інвестор без боргу (методика компанії)',Q.map(q=>q.investor_annual_yield_cash*100),css('--accent'),'solid'),
     ly('Інвестор з боргом (методика компанії)',Q.map(q=>q.investor_annual_yield*100),css('--accent2'),'solid'),
-    ly('Ваша без боргу (курс Приватбанку)',Q.map(q=>q.annual_cash!=null?q.annual_cash*100:null),css('--accent'),'dash',{connectgaps:false}),
-    ly('Ваша з боргом (курс Приватбанку)',Q.map(q=>q.annual!=null?q.annual*100:null),css('--accent2'),'dash',{connectgaps:false}),
     ly('План: проєкт',planP,css('--proj'),'dot',{mode:'lines'}),
     ly('План: інвестор',planI,css('--accent'),'dot',{mode:'lines'})],
     layout({title:{text:'Річна дохідність, % (за кожен квартал)',font:{size:13}},yaxis:{gridcolor:css('--line'),rangemode:'tozero'},legend:{orientation:'h',y:-0.25}}),cfg);
