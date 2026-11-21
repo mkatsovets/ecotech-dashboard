@@ -152,6 +152,16 @@ def electricity_per_cycle(reports: list[Report]) -> float:
     return cost / cycles if cycles else 0.0
 
 
+def debt_share(reports: list[Report], fc: dict) -> float:
+    """Share of an investor pool that is paid later as UkrEnergo debt: config value, or the
+    pooled ratio of the two most recent final reports."""
+    if fc.get("debt_share") is not None:
+        return float(fc["debt_share"])
+    last = sorted(reports, key=lambda r: r.period_end)[-2:]
+    pool = sum(r.pool for r in last)
+    return sum(r.debt_pool for r in last) / pool if pool else 0.0
+
+
 def calibration(reports: list[Report], prelims: list[Prelim]) -> float:
     """k = preliminary net / final net, pooled over periods where both exist."""
     pm = {p.month: p for p in prelims}
@@ -266,6 +276,7 @@ def build_quarters(months: list[MonthRow], capital: float, tiers, fx_fallback: f
             pool = sum(m.pool for m in ms)
             row.update(
                 status="locked", base=base, pool=pool, mgmt=sum(m.mgmt for m in ms),
+                report_keys=sorted({m.report_key for m in ms if m.report_key}),
                 profit_tax=sum(m.profit_tax for m in ms),
                 debt=sum(m.debt for m in ms), tax_adj=sum(m.adj for m in ms),
                 fx=base / base_usd if base_usd else None,
@@ -326,7 +337,7 @@ def run_all(reports: list[Report], prelims: list[Prelim], cfg: dict, today: date
                 r[scen] = {"base": s["base"], "pool": s["pool"], "annual_yield": s["annual_yield"],
                            "investor_annual_yield": s["investor_annual_yield"]}
     return {"months": months, "quarters": quarters, "calibration": k,
-            "assumptions": assumptions, "tiers": tiers}
+            "assumptions": assumptions, "tiers": tiers, "debt_share": debt_share(reports, fc)}
 
 
 def check_reports(reports: list[Report], capital: float, tiers) -> list[dict]:

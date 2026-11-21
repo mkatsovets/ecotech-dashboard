@@ -42,8 +42,10 @@ def test_reports_reproduced(repo, cfg, tiers):
 def test_checks_flag_the_known_report_issues(repo, cfg, tiers):
     checks = check_reports(repo.reports(cfg["id"]), cfg["capital_usd"], tiers)
     failed = {(c["report"], c["name"]) for c in checks if not c["ok"]}
-    # Q2: pool + mgmt != base (151.28 UAH); Sep: reported headline yield 73.08% != 71.3%
+    # Q2: pool + mgmt != base (151.28 UAH); Sep: owner's pool is 296.89 off the infographic's
+    # mgmt, and the reported headline yield 73.08% != 71.3%
     assert ("2026-Q2", "Пул інвесторів + винагорода КК = база") in failed
+    assert ("2026-09", "Пул інвесторів + винагорода КК = база") in failed
     assert ("2026-09", "Дохідність проєкту у звіті збігається з розрахунком") in failed
     assert not any(r == "2026-07-08" for r, _ in failed)
 
@@ -59,7 +61,7 @@ def test_quarters(repo, cfg):
     q = {r["label"]: r for r in res["quarters"]}
     assert q["Q2 2026"]["status"] == "locked"
     assert q["Q3 2026"]["status"] == "locked"
-    assert q["Q3 2026"]["pool"] == pytest.approx(8629986.57 + 4116179.83, abs=0.01)
+    assert q["Q3 2026"]["pool"] == pytest.approx(8629986.57 + 4116476.72, abs=0.01)
     assert q["Q3 2026"]["days"] == 92
     q4 = q["Q4 2026"]
     assert q4["status"] == "estimate"                       # October is in, Nov/Dec are forecast
@@ -150,7 +152,8 @@ def test_service_reference_investor(repo, cfg):
     pay = {p["key"]: p for p in d["payments"]}
     assert pay["2026-Q2"]["annual_cash"] == pytest.approx(0.2191, abs=2e-3)     # Excel AC37
     assert pay["2026-07-08"]["annual_cash"] == pytest.approx(0.2475, abs=2e-3)  # Excel AC38
-    assert d["kpi"]["received_cash_uah"] == pytest.approx(26347.29 + 47301.78 + 28306.58, abs=1.0)
+    # Excel payouts: 26347.30 + 47301.80 + 28339.52 (September now uses the owner's pool/debt)
+    assert d["kpi"]["received_cash_uah"] == pytest.approx(26347.30 + 47301.80 + 28339.52, abs=0.1)
     assert d["kpi"]["xirr_cash"] is not None
     assert d["kpi"]["next_payout"]["label"] == "Q4 2026"
 
@@ -160,7 +163,18 @@ def test_service_cash_and_debt_reconcile(repo, cfg):
     d = build_dashboard(repo, FakeFx(), cfg, TODAY)
     q = {x["label"]: x for x in d["quarters"]}
     assert q["Q3 2026"]["cash_uah"] + q["Q3 2026"]["debt_uah"] == pytest.approx(q["Q3 2026"]["payout_uah"])
-    assert q["Q4 2026"]["cash_uah"] is None and q["Q4 2026"]["debt_uah"] is None   # unknown for estimates
+    # estimates split the accrued payout by the assumed debt share (pooled ratio of the last two reports)
+    ds = (2933426.57 + 703545.00) / (8629986.57 + 4116476.72)
+    assert d["model"]["debt_share"] == pytest.approx(ds)
+    q4 = q["Q4 2026"]
+    assert q4["split_is_estimate"] and q4["debt_uah"] == pytest.approx(q4["payout_uah"] * ds)
+    assert q4["cash_usd"] == pytest.approx(q4["payout_usd"] * (1 - ds))
+    assert q4["low"]["cash_usd"] < q4["cash_usd"] < q4["high"]["cash_usd"]
+    # locked quarter dollars are the sum of the per-payment dollars (each at its own date's rate)
+    pays = {p["key"]: p for p in d["payments"]}
+    assert q["Q3 2026"]["cash_usd"] == pytest.approx(pays["2026-07-08"]["cash_usd"] + pays["2026-09"]["cash_usd"])
+    assert q["Q3 2026"]["payout_usd"] == pytest.approx(pays["2026-07-08"]["accrued_usd"] + pays["2026-09"]["accrued_usd"])
+    assert not q["Q3 2026"]["split_is_estimate"]
     cash = sum(p["cash_uah"] for p in d["payments"])
     assert cash == pytest.approx(q["Q2 2026"]["cash_uah"] + q["Q3 2026"]["cash_uah"])
     assert d["kpi"]["received_cash_uah"] == pytest.approx(cash)

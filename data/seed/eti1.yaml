@@ -61,14 +61,14 @@ reports:
     opex_software: 6666.66
     profit_tax: 0
     base: 7950698.66
-    pool: 4116179.83                # infographic; the owner's Excel has 4116476.72 (typo)
-    debt_pool: 707223.96            # infographic; Excel has 703545.00
+    pool: 4116476.72                # owner's data (confirmed correct); the infographic shows 4116179.83
+    debt_pool: 703545.00            # owner's data (confirmed correct); the infographic shows 707223.96
     mgmt: 3834518.83
     nbu_rate: 45.20
     pay_date: 2026-10-27
     reported_yield: 0.7308
     reported_investor_yield: 0.3763
-    note: "Infographic says rate date 26.09.2026 (before month end, likely a typo). Payouts match a yield of 71.3%, not the reported 73.08%."
+    note: "Pool and UkrEnergo debt are the owner's figures (the infographic differs: 4116179.83 / 707223.96). Infographic says rate date 26.09.2026 (before month end, likely a typo). Payouts match a yield of 71.3%, not the reported 73.08%. Pool + mgmt is 296.89 above base."
 
 monthly:
   - {month: 2026-07-01, days: 31, cycles: 60.4, net_uah: 6456618, status: reconciled, note: "UkrEnergo reconciliation received"}

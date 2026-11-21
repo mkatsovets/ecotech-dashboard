@@ -8,8 +8,10 @@ Conversation with the user in Ukrainian; code, comments and commit messages in E
 - Two different FX uses, never mix them: the company's waterfall/yield uses the NBU rate
   stored in each report (`nbu_rate`); the investor's USD figures use the Privatbank card
   "sell" rate on the payout date (`app/fx.py`).
-- Source of truth for report numbers is the infographic, not the owner's Excel
-  (the Excel September row had typos: pool 4116476.72 vs 4116179.83, debt 703545 vs 707223.96).
+- Source of truth for report numbers is the infographic, with one confirmed exception: for
+  September the owner's data win (pool 4116476.72, UkrEnergo debt 703545.00; the infographic
+  shows 4116179.83 / 707223.96). The consistency check "pool + mgmt = base" therefore flags
+  September (+296.89 UAH); that is expected, do not "fix" the seed to silence it.
 - Quarter forecast: a quarter is locked only when all months are final. Nothing past is
   rewritten silently: new reports replace forecast values, history stays.
 - Run `pytest` after any change to `app/waterfall.py` or `app/model.py`; the three company

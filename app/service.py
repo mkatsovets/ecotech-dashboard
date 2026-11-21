@@ -79,17 +79,35 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
 
     # --- quarters with the personal view -------------------------------------------------
     quarters = []
+    ds = model["debt_share"]
+    pay_by_key = {p["key"]: p for p in payments}
     for q in model["quarters"]:
         row = dict(q)
         row["payout_uah"] = q["pool"] * S                    # accrued: cash + UkrEnergo debt share
-        row["debt_uah"] = q["debt"] * S if q["debt"] is not None else None
-        row["cash_uah"] = (q["pool"] - q["debt"]) * S if q["debt"] is not None else None
-        row["payout_usd"] = usd(row["payout_uah"], q["pay_date"])
+        if q["debt"] is not None:                            # locked: actual split from the reports
+            row["debt_uah"] = q["debt"] * S
+            row["cash_uah"] = (q["pool"] - q["debt"]) * S
+            ps = [pay_by_key[k] for k in q.get("report_keys", []) if k in pay_by_key]
+            ok = bool(ps) and all(p["accrued_usd"] is not None for p in ps)
+            # dollars are summed per payment, each at the Privatbank rate of its own payout date
+            row["payout_usd"] = sum(p["accrued_usd"] for p in ps) if ok else None
+            row["cash_usd"] = sum(p["cash_usd"] for p in ps) if ok else None
+            row["split_is_estimate"] = False
+        else:                                                # estimate: split by the assumed debt share
+            row["debt_uah"] = row["payout_uah"] * ds
+            row["cash_uah"] = row["payout_uah"] * (1 - ds)
+            row["payout_usd"] = usd(row["payout_uah"], q["pay_date"])
+            row["cash_usd"] = row["payout_usd"] * (1 - ds) if row["payout_usd"] is not None else None
+            row["split_is_estimate"] = True
         row["annual"] = annualized(row["payout_usd"], A, q["days"]) if row["payout_usd"] is not None else None
+        # investor's yield without the debt share: the company's yield scaled by cash / accrued
+        row["investor_annual_yield_cash"] = (q["investor_annual_yield"] * row["cash_uah"] / row["payout_uah"]
+                                             if row["payout_uah"] else 0.0)
         for scen in ("low", "high"):
             if scen in q:
                 u = usd(q[scen]["pool"] * S, q["pay_date"])
-                row[scen] = {**q[scen], "payout_uah": q[scen]["pool"] * S, "payout_usd": u}
+                row[scen] = {**q[scen], "payout_uah": q[scen]["pool"] * S, "payout_usd": u,
+                             "cash_usd": u * (1 - ds) if u is not None else None}
         quarters.append(row)
 
     # --- KPIs -------------------------------------------------------------------------------
@@ -128,7 +146,8 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
         "xirr_with_debt": xirr(flows_debt),
         "next_payout": None if next_q is None else {
             "label": next_q["label"], "status": next_q["status"], "pay_date": next_q["pay_date"],
-            "uah": next_q["payout_uah"], "usd": next_q["payout_usd"],
+            "uah": next_q["payout_uah"], "usd": next_q["payout_usd"], "cash_usd": next_q["cash_usd"],
+            "cash_uah": next_q["cash_uah"], "debt_share": ds,
             "low_usd": next_q.get("low", {}).get("payout_usd"), "high_usd": next_q.get("high", {}).get("payout_usd"),
             "low_uah": next_q.get("low", {}).get("payout_uah"), "high_uah": next_q.get("high", {}).get("payout_uah"),
         },
@@ -153,7 +172,7 @@ def build_dashboard(repo, fx, cfg: dict, today: date, amount=None, share=None,
                      "opex_total": r.opex_electricity + r.other_opex} for r in reports],
         "prelims": [asdict(p) for p in prelims],
         "checks": check_reports(reports, capital, tiers_from_config(cfg["tiers"])),
-        "model": {"calibration": model["calibration"],
+        "model": {"calibration": model["calibration"], "debt_share": ds,
                   "assumptions": {k: asdict(v) for k, v in model["assumptions"].items()}},
         "warnings": sorted(set(warnings)),
     }

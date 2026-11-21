@@ -52,4 +52,6 @@ forecast:
   profit_tax_uah: 0           # assumed profit tax per forecast quarter
   payout_lag_days: 25         # payout date ~ period end + N days (history: 24-27)
   calibration: null           # null = derive from history; or a number, e.g. 0.89
+  debt_share: null            # share of the investor pool paid later as UkrEnergo debt;
+                              # null = pooled ratio of the last two final reports
   fx_uah_per_usd: null        # null = NBU rate of the latest final report
