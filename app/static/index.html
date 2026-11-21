@@ -28,6 +28,7 @@ h1{font-size:22px;margin:0 0 2px} h2{font-size:16px;margin:28px 0 10px}
 .controls label{display:flex;flex-direction:column;font-size:12px;color:var(--ink2);gap:4px}
 .controls input{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;width:150px}
 .controls button{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
+.fxsw{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}.fxsw button{padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink2);cursor:pointer;font:inherit;font-size:12px}.fxsw button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 .kpi .l{font-size:12px;color:var(--muted)} .kpi .v{font-size:24px;font-weight:650;margin:2px 0}
 .kpi .s{font-size:12px;color:var(--ink2)}
@@ -83,7 +84,7 @@ ol.steps{margin:0 0 10px;padding-left:20px} ol.steps li{margin:0 0 8px}
   <h2>Квартали: виплата та дохідність</h2>
   <div class="grid2">
     <div class="card"><div class="chart" id="c_pay"></div></div>
-    <div class="card"><div class="chart" id="c_yield"></div></div>
+    <div class="card"><div class="fxsw" id="fxsw"><button data-fx="nbu">Курс НБУ (методика компанії)</button><button data-fx="privat">Курс Приватбанку (ваш розрахунок)</button></div><div class="chart" id="c_yield"></div></div>
   </div>
   <p class="note" id="forecast_note"></p>
 
@@ -256,10 +257,12 @@ function charts(){
   // 4. annual yield: project and investor per quarter vs plan
   const planP=Q.map(_=>D.plan.project_yield*100), planI=Q.map(_=>D.plan.investor_yield*100);
   const ly=(name,y,color,dash,extra)=>Object.assign({type:'scatter',mode:'lines+markers',name,x:qx,y,line:{color,width:2,dash},marker:{size:8,line:{color:css('--card'),width:2}},hovertemplate:'%{y:.1f}%'},extra||{});
+  let pv=false; try{pv=localStorage.getItem('eti_yfx')==='privat'}catch(e){}
+  document.querySelectorAll('#fxsw button').forEach(b=>{b.classList.toggle('on',(b.dataset.fx==='privat')===pv);b.onclick=()=>{try{localStorage.setItem('eti_yfx',b.dataset.fx)}catch(e){} charts()}});
   Plotly.react('c_yield',[
     ly('Проєкт (звіт компанії, курс НБУ)',Q.map(q=>q.annual_yield*100),css('--proj'),'solid'),
-    ly('Інвестор без боргу (методика компанії)',Q.map(q=>q.investor_annual_yield_cash*100),css('--accent'),'solid'),
-    ly('Інвестор з боргом (методика компанії)',Q.map(q=>q.investor_annual_yield*100),css('--accent2'),'solid'),
+    ly(pv?'Ваша без боргу (курс Приватбанку)':'Інвестор без боргу (методика компанії)',Q.map(q=>{const v=pv?q.annual_cash:q.investor_annual_yield_cash;return v!=null?v*100:null}),css('--accent'),'solid'),
+    ly(pv?'Ваша з боргом (курс Приватбанку)':'Інвестор з боргом (методика компанії)',Q.map(q=>{const v=pv?q.annual:q.investor_annual_yield;return v!=null?v*100:null}),css('--accent2'),'solid'),
     ly('План: проєкт',planP,css('--proj'),'dot',{mode:'lines'}),
     ly('План: інвестор',planI,css('--accent'),'dot',{mode:'lines'})],
     layout({title:{text:'Річна дохідність, % (за кожен квартал)',font:{size:13}},yaxis:{gridcolor:css('--line'),rangemode:'tozero'},legend:{orientation:'h',y:-0.25}}),cfg);
