@@ -185,19 +185,17 @@ def test_service_cash_and_debt_reconcile(repo, cfg):
                for r in d["reports"])
 
 
-def test_project_yield_at_privat_vs_nbu_rate(repo, cfg):
-    """The company's yield converts the base at the NBU rate; the dashboard's own figure at the
-    Privatbank rate of the payout date. Same base, so the ratio is the ratio of the rates."""
+def test_quarter_yields(repo, cfg):
+    """Company-method yields (NBU rate) match the reports; the investor's own dollar yields
+    (Privatbank rate) are shown separately and cash-only is below cash + debt share."""
     from app.service import build_dashboard
     d = build_dashboard(repo, FakeFx(), cfg, TODAY)
     q = {x["label"]: x for x in d["quarters"]}
-    # Q2: NBU 44.75 (report) vs Privat 45.0451 (payout date) -> dashboard yield is lower
     assert q["Q2 2026"]["annual_yield"] == pytest.approx(0.3430, abs=1e-3)
-    assert q["Q2 2026"]["annual_yield_privat"] == pytest.approx(q["Q2 2026"]["annual_yield"] * 44.75 / 45.0451, rel=1e-6)
-    for label in ("Q3 2026", "Q4 2026", "Q1 2027"):
-        assert q[label]["annual_yield_privat"] and q[label]["annual_yield_privat"] != q[label]["annual_yield"]
-    # personal yields in dollars: cash only is below cash + debt share
+    assert q["Q2 2026"]["investor_annual_yield"] == pytest.approx(0.2212, abs=1e-3)
+    assert q["Q3 2026"]["investor_annual_yield_cash"] < q["Q3 2026"]["investor_annual_yield"]
     assert 0 < q["Q3 2026"]["annual_cash"] < q["Q3 2026"]["annual"]
+    assert "annual_yield_privat" not in q["Q3 2026"]
 
 
 def test_service_share_scales_linearly(repo, cfg):
