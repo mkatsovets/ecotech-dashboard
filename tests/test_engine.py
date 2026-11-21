@@ -106,6 +106,23 @@ def test_parse_privat_fixture():
     assert rates == {"cash_buy": 44.9, "cash_sell": 45.55, "card_buy": 45.05, "card_sell": 45.4546}
 
 
+def test_fx_falls_back_to_last_available_day(repo):
+    from app.fx import FxError, FxService
+    calls = []
+
+    def fetcher(day):
+        calls.append(day)
+        if day >= date(2026, 11, 21):                 # weekend: nothing published yet
+            raise FxError("no data")
+        return {"cash_buy": 1, "cash_sell": 2, "card_buy": 3, "card_sell": 45.4546}
+
+    fx = FxService(repo, fetcher=fetcher, today=date(2026, 11, 22))
+    assert fx.get(date(2026, 12, 31)) == 45.4546      # future date -> today -> last available
+    assert fx.get(date(2026, 11, 21)) == 45.4546      # past weekend day: carried over and cached
+    assert repo.get_fx(date(2026, 11, 21)) is not None
+    assert repo.get_fx(date(2026, 11, 22)) is None    # today's day is not cached from a fallback
+
+
 # --- service: reproduce the owner's Excel columns for the reference investor -----------------
 def test_service_reference_investor(repo, cfg):
     from app.service import build_dashboard

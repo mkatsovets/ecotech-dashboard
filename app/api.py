@@ -34,6 +34,12 @@ def dashboard(amount: float | None = Query(None, gt=0, le=1e9),
     return build_dashboard(repo, fx, cfg, today, amount, share, start, valuation)
 
 
+@app.get("/healthz")
+def healthz():
+    repo.conn.execute("SELECT 1")  # DB reachable
+    return {"status": "ok"}
+
+
 @app.get("/")
 def index():
     return FileResponse(ROOT / "app" / "static" / "index.html")

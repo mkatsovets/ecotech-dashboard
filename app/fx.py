@@ -8,8 +8,10 @@ from __future__ import annotations
 import re
 import time
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
+_MISS: dict[date, float] = {}   # day -> monotonic time of the last failed fetch
+MISS_TTL = 1800                 # do not retry a failed day for 30 minutes
 URL = "https://index.minfin.com.ua/ua/exchange/archive/privat/{d}/"
 USER_AGENT = "ecotech-dashboard/0.1 (personal investor dashboard)"
 KINDS = ("cash_buy", "cash_sell", "card_buy", "card_sell")
@@ -62,19 +64,35 @@ class FxService:
         self.today = today or date.today()
         self._last_fetch = 0.0
 
-    def get(self, day: date) -> float | None:
-        """Rate for `day`; future dates use today's rate. None if unavailable."""
-        day = min(day, self.today)
+    def _load(self, day: date) -> dict[str, float] | None:
+        """Cached rates for exactly `day`, fetching once if needed."""
         cached = self.repo.get_fx(day)
-        if cached is None:
-            wait = 0.6 - (time.monotonic() - self._last_fetch)  # be polite to the site
-            if wait > 0:
-                time.sleep(wait)
-            try:
-                cached = self.fetcher(day)
-            except FxError:
-                return None
-            finally:
-                self._last_fetch = time.monotonic()
-            self.repo.put_fx(day, cached, datetime.now(timezone.utc).isoformat())
-        return cached.get(self.kind)
+        if cached is not None:
+            return cached
+        if time.monotonic() - _MISS.get(day, -1e9) < MISS_TTL:
+            return None                      # recently failed (e.g. today's rate not yet published)
+        wait = 0.6 - (time.monotonic() - self._last_fetch)  # be polite to the site
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            cached = self.fetcher(day)
+        except FxError:
+            _MISS[day] = time.monotonic()
+            return None
+        finally:
+            self._last_fetch = time.monotonic()
+        self.repo.put_fx(day, cached, datetime.now(timezone.utc).isoformat())
+        return cached
+
+    def get(self, day: date) -> float | None:
+        """Rate for `day`; future dates use today's. If the page has no data for the day
+        (weekend, not yet published), the last available earlier rate is used."""
+        day = min(day, self.today)
+        for back in range(0, 8):
+            d = day - timedelta(days=back)
+            rates = self._load(d)
+            if rates is not None:
+                if back and day < self.today:  # remember the carry-over for past days only
+                    self.repo.put_fx(day, rates, datetime.now(timezone.utc).isoformat())
+                return rates.get(self.kind)
+        return None

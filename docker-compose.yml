@@ -1,0 +1,16 @@
+# Local check of the same image that runs on V/AM:
+#   docker compose up --build        ->  http://localhost:8080/
+services:
+  dashboard:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ecotech-data:/data
+    # environment:            # admin side (not built yet) will read these
+    #   ADMIN_PASSWORD: change-me
+    #   ANTHROPIC_API_KEY: sk-ant-...
+    restart: unless-stopped
+
+volumes:
+  ecotech-data:
